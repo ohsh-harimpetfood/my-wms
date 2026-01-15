@@ -1,10 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // 1. ESLint (스타일 검사) 무시
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  // 2. TypeScript (문법 검사) 무시
+  // eslint 부분은 삭제! (Next.js 16에서는 여기서 쓰면 에러남)
+  
+  // typescript 부분만 남김
   typescript: {
     ignoreBuildErrors: true,
   },
