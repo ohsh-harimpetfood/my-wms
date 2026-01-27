@@ -24,7 +24,7 @@ export default function OutboundPage() {
     }
 
     try {
-      // 1. 현재 재고 확인 (가장 중요!)
+      // 1. 현재 재고 확인
       const { data: currentStock, error: fetchError } = await supabase
         .from('inventory')
         .select('*')
@@ -38,31 +38,43 @@ export default function OutboundPage() {
         return;
       }
 
-      // 🛡️ 방어 로직: 재고 부족 체크
+      // 🛡️ 재고 부족 체크
       if (Number(currentStock.quantity) < Number(qty)) {
         alert(`재고가 부족합니다! (현재고: ${currentStock.quantity})`);
         setLoading(false);
         return;
       }
 
-      // 2. 재고 차감 (Update)
+      // ✨ [수정된 부분] 2. 재고 차감 또는 삭제
       const newQty = Number(currentStock.quantity) - Number(qty);
       
-      const { error: updateError } = await supabase
-        .from('inventory')
-        .update({ quantity: newQty })
-        .eq('id', currentStock.id);
+      if (newQty === 0) {
+        // (A) 잔량이 0이면 -> 아예 삭제 (Clean DB) 🧹
+        const { error: deleteError } = await supabase
+          .from('inventory')
+          .delete()
+          .eq('id', currentStock.id);
+        
+        if (deleteError) throw deleteError;
 
-      if (updateError) throw updateError;
+      } else {
+        // (B) 잔량이 남으면 -> 수량 업데이트 📉
+        const { error: updateError } = await supabase
+          .from('inventory')
+          .update({ quantity: newQty })
+          .eq('id', currentStock.id);
+  
+        if (updateError) throw updateError;
+      }
 
-      // 3. 수불 내역(History) 기록 - OUTBOUND
+      // 3. 수불 내역(History) 기록 (이건 무조건 실행)
       const { error: historyError } = await supabase
         .from('stock_tx')
         .insert({
-          transaction_type: 'OUTBOUND', // 출고!
+          transaction_type: 'OUTBOUND',
           location_code: locCode,
           item_key: itemKey,
-          quantity: Number(qty) * -1, // 출고니까 마이너스로 기록하거나, 양수로 적고 타입으로 구분하기도 함 (여기선 헷갈리지 않게 수량 자체는 양수로, 타입은 OUTBOUND로)
+          quantity: Number(qty) * -1, 
           remark: '출고 등록 화면에서 차감'
         });
 

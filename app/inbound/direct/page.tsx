@@ -1,54 +1,95 @@
-// app/inbound/direct/page.tsx
 "use client";
 
 import { createClient } from "@/utils/supabase/client";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
-import { ArrowLeft, Search, X } from "lucide-react"; // 아이콘
+import { ArrowLeft, Search, X } from "lucide-react";
 import { Item } from "@/types";
+// ✨ 시각적 선택기 대신 리스트 기반 모달 임포트
+import LocationSelectorModal from "@/components/LocationSelectorModal";
 
 export default function DirectInboundPage() {
   const router = useRouter();
   const supabase = createClient();
+  const searchParams = useSearchParams();
 
-  // 입력 상태
+  // URL 파라미터 추출 (위치 및 품목 자동 완성용)
+  const autoLoc = searchParams.get("loc") || "";
+  const autoItem = searchParams.get("item") || "";
+
+  // 1. 데이터 상태
   const [items, setItems] = useState<Item[]>([]);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedItem, setSelectedItem] = useState<Item | null>(null);
-  
-  const [locationCode, setLocationCode] = useState("");
+  const [searchedLocations, setSearchedLocations] = useState<any[]>([]); 
+
+  // 2. 입력 폼 상태
+  const [locationCode, setLocationCode] = useState(autoLoc);
   const [qty, setQty] = useState("");
   const [lotNo, setLotNo] = useState("");
   const [expDate, setExpDate] = useState("");
+  
+  // 3. 품목 검색 및 선택 상태
+  const [itemSearchTerm, setItemSearchTerm] = useState("");
+  const [selectedItem, setSelectedItem] = useState<Item | null>(null);
+
+  // 4. UI 제어 상태
+  const [showLocDropdown, setShowLocDropdown] = useState(false);
+  const [showLocModal, setShowLocModal] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // ✨ 팝업 상태
-  const [showLocModal, setShowLocModal] = useState(false);
-
-  // 품목 마스터 로딩
+  // 초기 데이터 로드 및 URL 파라미터 기반 자동 선택
   useEffect(() => {
-    const fetchItems = async () => {
-      const { data } = await supabase.from("item_master").select("*").eq("active_flag", "Y");
-      if (data) setItems(data as Item[]);
+    const fetchData = async () => {
+      const { data: itemData } = await supabase.from("item_master").select("*").eq("active_flag", "Y");
+      if (itemData) {
+        const fetchedItems = itemData as Item[];
+        setItems(fetchedItems);
+
+        // ✨ [혼적 대응] URL에 item_key가 있으면 해당 품목 자동 선택
+        if (autoItem) {
+          const target = fetchedItems.find(i => i.item_key === autoItem);
+          if (target) handleSelectItem(target);
+        }
+      }
     };
-    fetchItems();
-  }, []);
+    fetchData();
+  }, [autoItem]);
 
-  // 🔍 스마트 검색 로직 (사용자님 코드 유지)
-  const normalize = (text: string) => text.replace(/\s+/g, "").toLowerCase();
-  const filteredItems = items.filter(i => {
-    const search = normalize(searchTerm);
-    const name = normalize(i.item_name);
-    const code = normalize(i.item_key);
-    return name.includes(search) || code.includes(search);
-  }).slice(0, 5); // 최대 5개만 노출
+  // 위치 실시간 DB 검색 (디바운싱 적용)
+  useEffect(() => {
+    if (!locationCode) {
+      setSearchedLocations([]);
+      return;
+    }
 
-  const handleSelect = (item: Item) => {
+    const timer = setTimeout(async () => {
+      const { data } = await supabase
+        .from("loc_master")
+        .select("loc_id, zone")
+        .ilike("loc_id", `%${locationCode}%`) 
+        .eq("active_flag", "Y")
+        .range(0, 9);
+      
+      if (data) setSearchedLocations(data);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [locationCode]);
+
+  // 품목 선택 핸들러
+  const handleSelectItem = (item: Item) => {
     setSelectedItem(item);
-    setSearchTerm("");
+    setItemSearchTerm("");
+    // 로트 관리 여부에 따른 기본값 설정
     setLotNo(item.lot_required === 'Y' ? '' : 'DEFAULT');
   };
 
+  const handleSelectLocation = (locId: string) => {
+    setLocationCode(locId);
+    setShowLocDropdown(false);
+    setShowLocModal(false);
+  };
+
+  // 저장 (Upsert) 로직
   const handleSave = async () => {
     if (!selectedItem || !locationCode || !qty) {
       alert("품목, 위치, 수량은 필수입니다.");
@@ -58,33 +99,56 @@ export default function DirectInboundPage() {
 
     try {
       const qtyNum = Number(qty);
+      if (qtyNum <= 0) throw new Error("수량은 0보다 커야 합니다.");
 
-      // 1. 재고(Inventory) Upsert
-      const { data: existInven } = await supabase
+      // [STEP 1] 위치 유효성 최종 검증
+      const { data: locInfo, error: locError } = await supabase
+        .from("loc_master")
+        .select("loc_id")
+        .eq("loc_id", locationCode)
+        .single();
+
+      if (locError || !locInfo) throw new Error(`유효하지 않은 위치 코드입니다.`);
+
+      // [STEP 2] 재고 정보 Upsert (동일 위치/품목/로트 합산)
+      const { data: existInven, error: fetchError } = await supabase
         .from("inventory")
         .select("id, quantity")
         .eq("location_code", locationCode)
         .eq("item_key", selectedItem.item_key)
         .eq("lot_no", lotNo || 'DEFAULT')
-        .single();
+        .maybeSingle();
+
+      if (fetchError) throw fetchError;
+
+      const nowISO = new Date().toISOString();
 
       if (existInven) {
-        await supabase.from("inventory").update({
-          quantity: existInven.quantity + qtyNum,
-          updated_at: new Date().toISOString()
-        }).eq("id", existInven.id);
+        const { error: updateError } = await supabase
+          .from("inventory")
+          .update({ 
+            quantity: existInven.quantity + qtyNum,
+            updated_at: nowISO 
+          })
+          .eq("id", existInven.id);
+        if (updateError) throw updateError;
       } else {
-        await supabase.from("inventory").insert({
-          location_code: locationCode,
-          item_key: selectedItem.item_key,
-          quantity: qtyNum,
-          lot_no: lotNo || 'DEFAULT',
-          exp_date: expDate || null,
-          status: 'AVAILABLE'
-        });
+        const { error: insertError } = await supabase
+          .from("inventory")
+          .insert({
+            location_code: locationCode,
+            item_key: selectedItem.item_key,
+            quantity: qtyNum,
+            lot_no: lotNo || 'DEFAULT',
+            status: 'AVAILABLE',
+            exp_date: expDate || null,
+            inbound_date: nowISO,
+            updated_at: nowISO
+          });
+        if (insertError) throw insertError;
       }
 
-      // 2. 수불 이력(History) 기록
+      // [STEP 3] 수불 이력(Transaction) 기록
       await supabase.from("stock_tx").insert({
         transaction_type: 'DIRECT_IN',
         location_code: locationCode,
@@ -95,40 +159,45 @@ export default function DirectInboundPage() {
         remark: '즉시 입고(Direct Inbound)'
       });
 
-      alert("입고 완료되었습니다.");
-      setQty(""); // 수량 초기화
-      // 필요하면 setSelectedItem(null) 등 추가 초기화
+      alert("입고 처리가 완료되었습니다.");
+      router.push("/inventory"); // 재고 현황으로 복귀
+      router.refresh();
 
     } catch (e: any) {
-      console.error(e);
-      alert("오류 발생: " + e.message);
+      alert(e.message);
     } finally {
       setLoading(false);
     }
   };
 
+  // 품목 필터링 (클라이언트)
+  const filteredItems = items.filter(i => {
+    const term = itemSearchTerm.toLowerCase();
+    return i.item_name.toLowerCase().includes(term) || i.item_key.toLowerCase().includes(term);
+  }).slice(0, 5);
+
   return (
     <div className="p-8 bg-black min-h-screen text-white font-[family-name:var(--font-geist-sans)]">
       
       <div className="flex items-center gap-4 mb-8 border-b border-gray-800 pb-4">
-        <button onClick={() => router.back()} className="text-gray-400 hover:text-white">
-            <ArrowLeft />
+        <button onClick={() => router.back()} className="text-gray-400 hover:text-white transition">
+          <ArrowLeft />
         </button>
         <h1 className="text-2xl font-bold text-yellow-500">⚡ 즉시 입고 (Direct Inbound)</h1>
       </div>
 
       <div className="max-w-2xl mx-auto bg-gray-900 border border-gray-800 p-8 rounded-xl shadow-2xl">
         
-        {/* 1. 품목 검색 (스마트 검색 유지) */}
+        {/* 1. 품목 선택 */}
         <div className="mb-6">
           <label className="block text-sm text-gray-400 mb-2">품목 선택</label>
           {selectedItem ? (
             <div className="flex justify-between items-center bg-blue-900/20 border border-blue-500 p-4 rounded-lg">
                 <div>
                     <div className="font-bold text-xl text-white">{selectedItem.item_name}</div>
-                    <div className="text-sm text-gray-400 mt-1">{selectedItem.item_key} | {selectedItem.uom}</div>
+                    <div className="text-sm text-gray-400 mt-1">{selectedItem.item_key}</div>
                 </div>
-                <button onClick={() => setSelectedItem(null)} className="text-sm text-red-400 hover:text-red-300 font-bold border border-red-900 px-3 py-1 rounded hover:bg-red-900/30 transition">변경</button>
+                <button onClick={() => setSelectedItem(null)} className="text-sm text-red-400 font-bold border border-red-900 px-3 py-1 rounded hover:bg-red-900/30 transition">변경</button>
             </div>
           ) : (
             <div className="relative">
@@ -138,47 +207,60 @@ export default function DirectInboundPage() {
                         type="text" 
                         placeholder="품목명 또는 코드로 검색..."
                         className="w-full bg-transparent text-white outline-none text-lg"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
+                        value={itemSearchTerm}
+                        onChange={(e) => setItemSearchTerm(e.target.value)}
                     />
                 </div>
-                {searchTerm && (
-                    <div className="absolute top-full left-0 w-full bg-gray-800 border border-gray-700 rounded-b mt-1 z-10 shadow-xl max-h-60 overflow-y-auto">
-                    {filteredItems.length === 0 ? (
-                        <div className="p-4 text-gray-500 text-center">검색 결과가 없습니다.</div>
-                    ) : (
-                        filteredItems.map(item => (
-                            <div key={item.item_key} onClick={() => handleSelect(item)} className="p-4 hover:bg-gray-700 cursor-pointer border-b border-gray-700 last:border-0 transition">
-                                <div className="font-bold text-white">{item.item_name}</div>
-                                <div className="text-xs text-gray-500">{item.item_key}</div>
-                            </div>
-                        ))
-                    )}
+                {itemSearchTerm && (
+                    <div className="absolute top-full left-0 w-full bg-gray-800 border border-gray-700 rounded-b mt-1 z-20 shadow-xl max-h-60 overflow-y-auto">
+                      {filteredItems.map(item => (
+                          <div key={item.item_key} onClick={() => handleSelectItem(item)} className="p-4 hover:bg-gray-700 cursor-pointer border-b border-gray-700 last:border-0 transition text-sm">
+                              <div className="font-bold text-white">{item.item_name}</div>
+                              <div className="text-xs text-gray-500">{item.item_key}</div>
+                          </div>
+                      ))}
                     </div>
                 )}
             </div>
           )}
         </div>
 
-        {/* 2. 위치 & 수량 (✨ 팝업 적용) */}
-        <div className="flex gap-4 mb-6">
-            <div className="flex-1">
+        {/* 2. 위치 & 수량 */}
+        <div className="flex gap-4 mb-6 relative">
+            <div className="flex-1 relative">
                 <label className="block text-sm text-gray-400 mb-2">위치 (Location)</label>
-                {/* 팝업 트리거로 변경 */}
-                <div 
-                    className="flex items-center bg-black border border-gray-700 rounded p-4 cursor-pointer hover:border-blue-500 transition group"
-                    onClick={() => setShowLocModal(true)}
-                >
-                    <Search className="text-gray-500 mr-3 group-hover:text-blue-400" size={20} />
+                <div className="flex items-center bg-black border border-gray-700 rounded p-4 focus-within:border-blue-500 transition group">
+                    <Search 
+                        className="text-gray-500 mr-3 cursor-pointer hover:text-blue-400" 
+                        size={20} 
+                        onClick={() => setShowLocModal(true)}
+                    />
                     <input 
                         type="text" 
                         value={locationCode}
-                        placeholder="터치하여 선택"
-                        readOnly
-                        className="bg-transparent outline-none text-white font-mono text-lg w-full cursor-pointer placeholder-gray-600 uppercase"
+                        onChange={(e) => {
+                            setLocationCode(e.target.value.toUpperCase());
+                            setShowLocDropdown(true); 
+                        }}
+                        onFocus={() => setShowLocDropdown(true)}
+                        placeholder="위치 코드 입력 또는 검색"
+                        className="bg-transparent outline-none text-white font-mono text-lg w-full uppercase"
                     />
                 </div>
+
+                {showLocDropdown && locationCode && (
+                    <div className="absolute top-full left-0 w-full bg-gray-800 border border-gray-700 rounded-b mt-1 z-20 shadow-xl max-h-60 overflow-y-auto">
+                        {searchedLocations.map(loc => (
+                            <div key={loc.loc_id} onClick={() => handleSelectLocation(loc.loc_id)} className="p-3 hover:bg-gray-700 cursor-pointer border-b border-gray-700 last:border-0 transition flex justify-between items-center text-sm">
+                                <span className="font-bold text-white font-mono">{loc.loc_id}</span>
+                                <span className="text-[10px] text-gray-500 bg-gray-900 px-2 py-1 rounded uppercase">{loc.zone}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {showLocDropdown && <div className="fixed inset-0 z-10" onClick={() => setShowLocDropdown(false)}></div>}
             </div>
+
             <div className="w-1/3">
                 <label className="block text-sm text-gray-400 mb-2">수량</label>
                 <input 
@@ -191,7 +273,7 @@ export default function DirectInboundPage() {
             </div>
         </div>
 
-        {/* 3. LOT 정보 */}
+        {/* 3. 로트 정보 */}
         {selectedItem && (
              <div className="bg-gray-800/50 p-4 rounded-lg mb-8 border border-gray-700">
                 <div className="grid grid-cols-2 gap-4">
@@ -203,7 +285,6 @@ export default function DirectInboundPage() {
                             value={lotNo}
                             onChange={(e) => setLotNo(e.target.value)}
                             disabled={selectedItem.lot_required === 'N'}
-                            placeholder={selectedItem.lot_required === 'N' ? "자동 입력됨" : ""}
                         />
                     </div>
                     <div>
@@ -213,7 +294,6 @@ export default function DirectInboundPage() {
                             className="w-full bg-black border border-gray-600 rounded p-3 text-white focus:border-blue-500 outline-none"
                             value={expDate}
                             onChange={(e) => setExpDate(e.target.value)}
-                            disabled={selectedItem.lot_required === 'N'}
                         />
                     </div>
                 </div>
@@ -230,81 +310,13 @@ export default function DirectInboundPage() {
 
       </div>
 
-      {/* ✨ 위치 선택 팝업 (하단에 배치) */}
+      {/* ✨ 신규 리스트 기반 위치 선택 모달 */}
       {showLocModal && (
         <LocationSelectorModal 
             onClose={() => setShowLocModal(false)}
-            onSelect={(locId) => {
-                setLocationCode(locId);
-                setShowLocModal(false);
-            }}
+            onSelect={handleSelectLocation}
         />
       )}
-
     </div>
   );
-}
-
-// -------------------------------------------------------------
-// ✨ 재사용 가능한 위치 선택 팝업
-// -------------------------------------------------------------
-function LocationSelectorModal({ onClose, onSelect }: { onClose: () => void, onSelect: (id: string) => void }) {
-    const supabase = createClient();
-    const [locations, setLocations] = useState<any[]>([]);
-    const [activeZone, setActiveZone] = useState<string>("");
-    const [uniqueZones, setUniqueZones] = useState<string[]>([]);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        const fetchLocs = async () => {
-            const { data } = await supabase.from("loc_master").select("*").eq("active_flag", "Y").order("loc_id");
-            if (data) {
-                setLocations(data);
-                const zones = Array.from(new Set(data.map((l:any) => l.zone))).sort() as string[];
-                setUniqueZones(zones);
-                if(zones.length > 0) setActiveZone(zones[0]);
-            }
-            setLoading(false);
-        };
-        fetchLocs();
-    }, []);
-
-    const filteredLocs = locations.filter((l:any) => l.zone === activeZone);
-    const rackKeys = Array.from(new Set(filteredLocs.map((l:any) => l.rack_no))).sort();
-
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
-            <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl">
-                <div className="flex justify-between items-center p-5 border-b border-gray-800">
-                    <h2 className="text-xl font-bold text-white">📍 위치 선택</h2>
-                    <button onClick={onClose} className="p-2 hover:bg-gray-800 rounded-full"><X /></button>
-                </div>
-                <div className="flex gap-2 px-5 pt-5 border-b border-gray-800 overflow-x-auto">
-                    {uniqueZones.map(zone => (
-                        <button key={zone} onClick={() => setActiveZone(zone)} className={`px-4 py-3 text-sm font-bold rounded-t-lg whitespace-nowrap ${activeZone === zone ? "bg-blue-600 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"}`}>
-                            {zone} 구역
-                        </button>
-                    ))}
-                </div>
-                <div className="flex-1 overflow-y-auto p-5 bg-black/30">
-                    {loading ? <div className="text-center py-10">로딩 중...</div> : (
-                        <div className="space-y-6">
-                            {rackKeys.map((rack: any) => (
-                                <div key={rack} className="bg-black border border-gray-800 rounded-lg p-4">
-                                    <h3 className="text-lg font-bold text-gray-400 mb-3 border-b border-gray-800 pb-2">Rack {rack}</h3>
-                                    <div className="flex flex-wrap gap-2">
-                                        {filteredLocs.filter((l:any) => l.rack_no === rack).map((loc:any) => (
-                                            <button key={loc.loc_id} onClick={() => onSelect(loc.loc_id)} className="px-3 py-2 bg-gray-900 border border-gray-700 rounded hover:bg-blue-600 hover:border-blue-400 hover:text-white transition text-sm text-blue-400 font-bold min-w-[80px]">
-                                                {loc.loc_id}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
 }

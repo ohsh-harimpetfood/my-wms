@@ -39,7 +39,7 @@ export default function NewOutboundPage() {
     fetchItemName();
   }, [formData.item_key]);
 
-  // 저장 핸들러
+// 저장 핸들러
   const handleSave = async () => {
     const qty = Number(formData.out_qty);
 
@@ -47,7 +47,6 @@ export default function NewOutboundPage() {
         alert("출고 수량을 입력해주세요.");
         return;
     }
-    // 재고 리스트에서 넘어온 경우, 수량 초과 체크
     if (paramMaxQty > 0 && qty > paramMaxQty) {
         alert(`현재 재고(${paramMaxQty})보다 많은 수량을 출고할 수 없습니다.`);
         return;
@@ -56,7 +55,6 @@ export default function NewOutboundPage() {
     setLoading(true);
     try {
         // 1. 재고 차감 (Inventory)
-        // 정확히 그 위치, 그 품목, 그 LOT의 재고를 찾아서 차감
         const { data: currentInv } = await supabase
             .from("inventory")
             .select("id, quantity")
@@ -70,26 +68,34 @@ export default function NewOutboundPage() {
         const newQty = currentInv.quantity - qty;
         if (newQty < 0) throw new Error("재고가 부족합니다.");
 
-        // 수량이 0이 되면 삭제할지, 0으로 남길지는 정책에 따름 (여기선 0으로 업데이트)
-        // 만약 0일 때 삭제하고 싶다면 .delete().eq('id', currentInv.id) 사용
-        await supabase
-            .from("inventory")
-            .update({ quantity: newQty, updated_at: new Date().toISOString() })
-            .eq("id", currentInv.id);
+        // ✨ [수정된 부분] 0이면 삭제, 남으면 업데이트
+        if (newQty === 0) {
+            // (A) 전량 출고 시 데이터 삭제 (Clean DB Policy) 🧹
+            await supabase
+                .from("inventory")
+                .delete()
+                .eq("id", currentInv.id);
+        } else {
+            // (B) 부분 출고 시 수량 업데이트 📉
+            await supabase
+                .from("inventory")
+                .update({ quantity: newQty, updated_at: new Date().toISOString() })
+                .eq("id", currentInv.id);
+        }
 
-        // 2. 수불 이력 생성 (Stock Transaction)
+        // 2. 수불 이력 생성 (Stock Transaction) - 이력은 영구 보존
         await supabase.from("stock_tx").insert({
             transaction_type: 'OUTBOUND',
             io_type: 'OUT',
             location_code: formData.location_code,
             item_key: formData.item_key,
             lot_no: formData.lot_no,
-            quantity: -qty, // 출고는 음수로 기록 (또는 양수로 하고 io_type으로 구분, 이전 로직에 맞춤)
+            quantity: -qty, 
             remark: formData.remark || '출고 등록'
         });
 
         alert("출고 처리가 완료되었습니다.");
-        router.push("/inventory"); // 재고 목록으로 복귀
+        router.push("/inventory"); 
         router.refresh();
 
     } catch (e: any) {
