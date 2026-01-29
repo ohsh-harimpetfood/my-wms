@@ -119,7 +119,7 @@ export default function LocationPage() {
                 onClick={() => setActiveZone('M')}
                 className={`px-6 py-2 rounded-md text-sm font-bold transition-all ${activeZone === 'M' ? "bg-purple-600 text-white shadow shadow-purple-500/50" : "text-gray-400 hover:text-white"}`}
             >
-                🏭 생산팀 (M존)
+                🏭 생산팀 (랙)
             </button>
             <button 
                 onClick={() => setActiveZone('2F')}
