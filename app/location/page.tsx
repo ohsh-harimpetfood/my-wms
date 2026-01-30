@@ -167,7 +167,7 @@ export default function LocationPage() {
 }
 
 // ==================================================================================
-// 2. M존 맵 뷰 (Visualizer) - [Final v2] 정렬/비율/위치 정밀 보정
+// 2. 맵 뷰 (Visualizer) - [Final v2] 정렬/비율/위치 정밀 보정
 // ==================================================================================
 function ZoneViewM({ locations, onRackClick }: { locations: LocationData[], onRackClick: (id: string) => void }) {
     const [toast, setToast] = useState<{ show: boolean, msg: string }>({ show: false, msg: "" });

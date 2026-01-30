@@ -26,6 +26,11 @@ export default function RackDetailModal({ rackName, locations, onClose }: Props)
   // 1. 데이터 분석
   const { columns, levels, rackType, hasSide1 } = useMemo(() => {
     const safeLocs = locations || [];
+    
+    if (safeLocs.length === 0) {
+        return { columns: [], levels: [], rackType: 'SINGLE', hasSide1: true, hasSide2: false };
+    }
+
     const lvls = Array.from(new Set(safeLocs.map(l => Number(l.level_no)))).sort((a, b) => b - a);
     const cols = Array.from(new Set(safeLocs.map(l => l.rack_no))).sort();
     const sides = new Set(safeLocs.map(l => l.side));
@@ -46,8 +51,6 @@ export default function RackDetailModal({ rackName, locations, onClose }: Props)
 
   const [currentSide, setCurrentSide] = useState<string>(hasSide1 ? '1' : '2');
   const [confirmInfo, setConfirmInfo] = useState<{ locCode: string, display: string } | null>(null);
-  
-  // 마우스 호버 상태 관리
   const [hoveredCell, setHoveredCell] = useState<string | null>(null);
 
   const findLoc = (col: string, lvl: number, side: string) => {
@@ -57,17 +60,29 @@ export default function RackDetailModal({ rackName, locations, onClose }: Props)
   const handleInventoryClick = (locId: string) => { router.push(`/inventory?query=${locId}`); };
 
   const handleEmptyCellClick = (col: string, lvl: number, side: string) => {
-      const sideSuffix = rackType === 'DOUBLE' ? (side === '1' ? '-F' : '-B') : ''; 
-      const generatedCode = `${rackName}${col}${lvl}${sideSuffix}`;
-      const displayStr = `${rackName}랙 ${col}열 ${lvl}단 ${side === '1' ? 'Side 1' : 'Side 2'}`;
-      setConfirmInfo({ locCode: generatedCode, display: displayStr });
+      // 2F 물류팀의 경우 랙 구조가 복잡할 수 있으므로, 데이터 상의 loc_id가 있으면 그걸 우선 사용
+      const existingLoc = findLoc(col, lvl, side);
+      
+      let locCode = "";
+      if (existingLoc) {
+          locCode = existingLoc.loc_id;
+      } else {
+          // 데이터가 없는데 클릭된 경우 (가상 셀), 규칙에 따라 생성 시도
+          const sideSuffix = rackName.length === 1 ? (side === '1' ? '' : '-2') : (side === '1' ? '-F' : '-B'); 
+          // 이 부분은 현장 규칙에 따라 다를 수 있으므로, 기존 데이터가 없으면 경고
+          console.warn("데이터가 없는 셀 클릭됨");
+          return; 
+      }
+
+      const displayStr = `Rack ${rackName} / ${col}열 / ${lvl}단 / Side ${side}`;
+      setConfirmInfo({ locCode: locCode, display: displayStr });
   };
 
   const proceedToInbound = () => {
       if (confirmInfo) router.push(`/inbound/direct?loc=${confirmInfo.locCode}`);
   };
 
-  // 📦 개별 셀 렌더링 컴포넌트
+  // 📦 개별 셀 렌더링 컴포넌트 (기존과 동일, 로직 그대로 사용)
   const CellBox = ({ data, col, lvl, side }: { data?: LocationData, col: string, lvl: number, side: string }) => {
       const inventory = data?.inventory || [];
       const itemCount = inventory.length;
@@ -77,10 +92,8 @@ export default function RackDetailModal({ rackName, locations, onClose }: Props)
       const isMixed = itemCount > 1; 
       const primaryItemName = inventory[0]?.item_master?.item_name;
 
-      // 호버 확인
       const isHovered = data && hoveredCell === data.loc_id;
 
-      // 스타일
       let cellClass = "bg-gray-900/50 border-gray-800 hover:border-green-500 hover:bg-green-900/20 group"; 
       let textClass = "text-gray-500";
       
@@ -96,17 +109,16 @@ export default function RackDetailModal({ rackName, locations, onClose }: Props)
           cellClass = "bg-gray-800 border-gray-700 text-gray-500 hover:border-green-500 hover:bg-gray-800 group";
       }
       
+      if (!data) return <div className="w-28 h-24 border border-transparent"></div>; // 데이터 없으면 빈 공간
+
       return (
         <div 
             onMouseEnter={() => { if(data) setHoveredCell(data.loc_id); }}
             onMouseLeave={() => { setHoveredCell(null); }}
             onClick={(e) => { 
                 e.stopPropagation(); 
-                if (data && totalQty > 0) handleInventoryClick(data.loc_id);
-                else if (data) {
-                    const displayStr = `${rackName}랙 ${col}열 ${lvl}단 ${side === '1' ? 'Side 1' : 'Side 2'}`;
-                    setConfirmInfo({ locCode: data.loc_id, display: displayStr });
-                } else handleEmptyCellClick(col, lvl, side);
+                if (totalQty > 0) handleInventoryClick(data.loc_id);
+                else handleEmptyCellClick(col, lvl, side);
             }}
             className={`
                 w-28 h-24 border rounded-lg p-2 flex flex-col justify-between 
@@ -116,66 +128,57 @@ export default function RackDetailModal({ rackName, locations, onClose }: Props)
                 ${cellClass}
             `}
         >
-            {data ? (
-                <>
-                    <div className="flex justify-between items-start w-full">
-                        <div className="text-[10px] font-mono opacity-60 truncate max-w-[70%]">{data.loc_id}</div>
-                        {!isEmpty && (
-                             isMixed 
-                               ? <Layers size={12} className="text-orange-500 animate-pulse" />
-                               : <Package size={12} className="text-purple-400" />
-                        )}
-                    </div>
+            <div className="flex justify-between items-start w-full">
+                <div className="text-[10px] font-mono opacity-60 truncate max-w-[70%]">{data.loc_id}</div>
+                {!isEmpty && (
+                    isMixed 
+                        ? <Layers size={12} className="text-orange-500 animate-pulse" />
+                        : <Package size={12} className="text-purple-400" />
+                )}
+            </div>
 
-                    <div className="flex-1 flex flex-col items-center justify-center w-full">
-                        {totalQty > 0 ? (
-                            <>
-                                <div className={`font-bold text-lg leading-none ${textClass}`}>
-                                    {totalQty.toLocaleString()}
-                                </div>
-                                {isMixed ? (
-                                    <div className="flex items-center gap-1 mt-1 text-orange-400 font-bold text-[10px]">
-                                        <AlertTriangle size={10} />
-                                        <span>{itemCount}종 혼적</span>
-                                    </div>
-                                ) : (
-                                    <div className="text-[9px] truncate w-full text-center opacity-80 mt-1 px-1">
-                                        {primaryItemName}
-                                    </div>
-                                )}
-                            </>
+            <div className="flex-1 flex flex-col items-center justify-center w-full">
+                {totalQty > 0 ? (
+                    <>
+                        <div className={`font-bold text-lg leading-none ${textClass}`}>
+                            {totalQty.toLocaleString()}
+                        </div>
+                        {isMixed ? (
+                            <div className="flex items-center gap-1 mt-1 text-orange-400 font-bold text-[10px]">
+                                <AlertTriangle size={10} />
+                                <span>{itemCount}종 혼적</span>
+                            </div>
                         ) : (
-                            <div className="text-gray-600 text-xs flex flex-col items-center gap-1 opacity-50 group-hover:opacity-100 group-hover:text-green-400 transition-all">
-                                 <span className="font-bold text-lg">+</span>
-                                 <span className="text-[10px]">Empty</span>
+                            <div className="text-[9px] truncate w-full text-center opacity-80 mt-1 px-1">
+                                {primaryItemName}
                             </div>
                         )}
+                    </>
+                ) : (
+                    <div className="text-gray-600 text-xs flex flex-col items-center gap-1 opacity-50 group-hover:opacity-100 group-hover:text-green-400 transition-all">
+                            <span className="font-bold text-lg">+</span>
+                            <span className="text-[10px]">Empty</span>
                     </div>
+                )}
+            </div>
 
-                    {/* ✨ [수정] 툴팁을 셀의 정중앙(Center)에 띄우도록 변경 */}
-                    {isMixed && isHovered && (
-                        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-64 z-[200] pointer-events-none animate-fade-in-fast">
-                             <div className="bg-gray-950 border border-orange-500 rounded-xl p-3 shadow-[0_0_50px_rgba(0,0,0,0.9)] text-[10px] text-left relative">
-                                <div className="font-bold text-orange-400 mb-2 pb-2 border-b border-gray-800 flex justify-between items-center">
-                                    <span>⚠️ 혼합 적재 ({itemCount}종)</span>
-                                    <span className="text-[9px] text-gray-500">총 {totalQty.toLocaleString()}</span>
-                                </div>
-                                <div className="space-y-1.5 max-h-48 overflow-y-hidden">
-                                    {inventory.map((inv, idx) => (
-                                        <div key={idx} className="flex justify-between gap-3 items-center bg-gray-900/50 p-1.5 rounded">
-                                            <span className="text-gray-300 truncate flex-1 leading-tight">{inv.item_master?.item_name}</span>
-                                            <span className="text-white font-mono font-bold whitespace-nowrap">{inv.quantity.toLocaleString()}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                             </div>
+            {/* 툴팁 */}
+            {isMixed && isHovered && (
+                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-64 z-[200] pointer-events-none animate-fade-in-fast">
+                        <div className="bg-gray-950 border border-orange-500 rounded-xl p-3 shadow-[0_0_50px_rgba(0,0,0,0.9)] text-[10px] text-left relative">
+                        <div className="font-bold text-orange-400 mb-2 pb-2 border-b border-gray-800 flex justify-between items-center">
+                            <span>⚠️ 혼합 적재 ({itemCount}종)</span>
+                            <span className="text-[9px] text-gray-500">총 {totalQty.toLocaleString()}</span>
                         </div>
-                    )}
-                </>
-            ) : (
-                 <div className="h-full flex flex-col items-center justify-center text-gray-700 text-xs opacity-30 group-hover:opacity-100 group-hover:text-green-500 transition-all">
-                    <span className="font-bold text-lg">+</span>
-                    <span className="text-[10px]">Inbound</span>
+                        <div className="space-y-1.5 max-h-48 overflow-y-hidden">
+                            {inventory.map((inv, idx) => (
+                                <div key={idx} className="flex justify-between gap-3 items-center bg-gray-900/50 p-1.5 rounded">
+                                    <span className="text-gray-300 truncate flex-1 leading-tight">{inv.item_master?.item_name}</span>
+                                    <span className="text-white font-mono font-bold whitespace-nowrap">{inv.quantity.toLocaleString()}</span>
+                                </div>
+                            ))}
+                        </div>
+                        </div>
                 </div>
             )}
         </div>
@@ -210,20 +213,29 @@ export default function RackDetailModal({ rackName, locations, onClose }: Props)
         {/* 본문 */}
         <div className="flex-1 overflow-auto p-8 custom-scrollbar bg-[#0a0a0a]">
           <div className="min-w-max mx-auto">
-            <div className="flex gap-4 mb-2 pl-12">
-               {columns.map(col => (<div key={col} className="w-28 text-center text-gray-500 font-bold text-sm bg-gray-900/50 py-1 rounded border border-gray-800">{col}열</div>))}
-            </div>
-            <div className="flex flex-col gap-4">
-              {levels.map(lvl => (
-                <div key={lvl} className="flex gap-4">
-                  <div className="w-12 flex-shrink-0 flex items-center justify-center font-bold text-gray-600 bg-gray-900/30 rounded border border-gray-800">{lvl}단</div>
-                  {columns.map(col => {
-                    const targetData = findLoc(col, lvl, currentSide);
-                    return <div key={`${col}-${lvl}`}><CellBox data={targetData} col={col} lvl={lvl} side={currentSide} /></div>;
-                  })}
+            {locations.length > 0 ? (
+                <>
+                    <div className="flex gap-4 mb-2 pl-12">
+                        {columns.map(col => (<div key={col} className="w-28 text-center text-gray-500 font-bold text-sm bg-gray-900/50 py-1 rounded border border-gray-800">{col}열</div>))}
+                    </div>
+                    <div className="flex flex-col gap-4">
+                    {levels.map(lvl => (
+                        <div key={lvl} className="flex gap-4">
+                        <div className="w-12 flex-shrink-0 flex items-center justify-center font-bold text-gray-600 bg-gray-900/30 rounded border border-gray-800">{lvl}단</div>
+                        {columns.map(col => {
+                            const targetData = findLoc(col, lvl, currentSide);
+                            return <div key={`${col}-${lvl}`}><CellBox data={targetData} col={col} lvl={lvl} side={currentSide} /></div>;
+                        })}
+                        </div>
+                    ))}
+                    </div>
+                </>
+            ) : (
+                <div className="flex flex-col items-center justify-center h-full text-gray-500 py-20">
+                    <AlertTriangle size={48} className="mb-4 text-yellow-500" />
+                    <p className="text-lg">해당 랙의 상세 데이터가 없습니다.</p>
                 </div>
-              ))}
-            </div>
+            )}
           </div>
         </div>
         
