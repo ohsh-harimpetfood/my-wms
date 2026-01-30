@@ -1,11 +1,12 @@
-// app/inbound/[id]/page.tsx
 "use client";
 
 import { createClient } from "@/utils/supabase/client";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Search, X } from "lucide-react"; // 아이콘 추가
+import { ArrowLeft, Search, X } from "lucide-react"; 
 import { InboundMaster, InboundDetail, Item } from "@/types";
+// ✨ [중요] 표준 모달 컴포넌트 임포트
+import LocationSelectorModal from "@/components/LocationSelectorModal";
 
 // DB에서 가져올 데이터 타입 정의
 interface InboundDetailWithItem extends InboundDetail {
@@ -29,7 +30,7 @@ export default function InboundWorkPage() {
   const [expDate, setExpDate] = useState("");
   const [processing, setProcessing] = useState(false);
 
-  // ✨ 팝업 상태 추가
+  // 팝업 상태
   const [showLocModal, setShowLocModal] = useState(false);
 
   // 1. 데이터 불러오기
@@ -69,7 +70,7 @@ export default function InboundWorkPage() {
     setLocationCode(""); 
   };
 
-  // 3. 입고 실행 (사용자님의 로직 유지)
+  // 3. 입고 실행
   const handleConfirm = async () => {
     if (!selectedDetail || !locationCode || !inputQty) {
       alert("위치와 수량은 필수입니다.");
@@ -96,6 +97,10 @@ export default function InboundWorkPage() {
           updated_at: new Date().toISOString()
         }).eq("id", existInven.id);
       } else {
+        // ✨ 위치 유효성 검증 (안전 장치)
+        const { data: validLoc } = await supabase.from("loc_master").select("loc_id").eq("loc_id", locationCode).single();
+        if(!validLoc) throw new Error(`존재하지 않는 위치 코드입니다: ${locationCode}`);
+
         await supabase.from("inventory").insert({
           location_code: locationCode,
           item_key: selectedDetail.item_key,
@@ -126,7 +131,7 @@ export default function InboundWorkPage() {
         remark: `입고작업: ${master?.supplier_name}`
       });
 
-      // D. 마스터 상태 업데이트 (사용자님 로직 반영)
+      // D. 마스터 상태 업데이트
       const { data: allDetails } = await supabase
         .from("inbound_detail")
         .select("id, status")
@@ -241,7 +246,7 @@ export default function InboundWorkPage() {
                 <div className="font-bold text-lg text-blue-400">{selectedDetail.item_master.item_name}</div>
               </div>
 
-              {/* ✨ 위치 입력 (팝업 트리거 적용) */}
+              {/* ✨ 위치 입력 (표준 모달 호출) */}
               <div>
                 <label className="block text-sm text-gray-400 mb-1">위치 (Location)</label>
                 <div 
@@ -252,9 +257,11 @@ export default function InboundWorkPage() {
                     <input 
                         type="text" 
                         placeholder="터치하여 위치 선택"
-                        readOnly // 키보드 안 올라오게 설정
-                        className="bg-transparent outline-none text-white font-mono text-lg w-full cursor-pointer"
+                        // ✨ 수기 입력 가능하도록 readOnly 제거
+                        // readOnly 
+                        className="bg-transparent outline-none text-white font-mono text-lg w-full cursor-pointer placeholder-gray-600 uppercase"
                         value={locationCode}
+                        onChange={(e) => setLocationCode(e.target.value.toUpperCase())}
                     />
                 </div>
               </div>
@@ -289,7 +296,7 @@ export default function InboundWorkPage() {
         </div>
       </div>
 
-      {/* ✨ 팝업 컴포넌트 렌더링 */}
+      {/* ✨ 표준 모달 사용 */}
       {showLocModal && (
         <LocationSelectorModal 
             onClose={() => setShowLocModal(false)}
@@ -302,68 +309,4 @@ export default function InboundWorkPage() {
 
     </div>
   );
-}
-
-// -------------------------------------------------------------
-// ✨ 위치 선택 팝업 컴포넌트 (이전 코드 재활용)
-// -------------------------------------------------------------
-function LocationSelectorModal({ onClose, onSelect }: { onClose: () => void, onSelect: (id: string) => void }) {
-    const supabase = createClient();
-    const [locations, setLocations] = useState<any[]>([]);
-    const [activeZone, setActiveZone] = useState<string>("");
-    const [uniqueZones, setUniqueZones] = useState<string[]>([]);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        const fetchLocs = async () => {
-            const { data } = await supabase.from("loc_master").select("*").eq("active_flag", "Y").order("loc_id");
-            if (data) {
-                setLocations(data);
-                const zones = Array.from(new Set(data.map((l:any) => l.zone))).sort() as string[];
-                setUniqueZones(zones);
-                if(zones.length > 0) setActiveZone(zones[0]);
-            }
-            setLoading(false);
-        };
-        fetchLocs();
-    }, []);
-
-    const filteredLocs = locations.filter((l:any) => l.zone === activeZone);
-    const rackKeys = Array.from(new Set(filteredLocs.map((l:any) => l.rack_no))).sort();
-
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
-            <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl">
-                <div className="flex justify-between items-center p-5 border-b border-gray-800">
-                    <h2 className="text-xl font-bold text-white">📍 입고 위치 선택</h2>
-                    <button onClick={onClose} className="p-2 hover:bg-gray-800 rounded-full"><X /></button>
-                </div>
-                <div className="flex gap-2 px-5 pt-5 border-b border-gray-800 overflow-x-auto">
-                    {uniqueZones.map(zone => (
-                        <button key={zone} onClick={() => setActiveZone(zone)} className={`px-4 py-3 text-sm font-bold rounded-t-lg whitespace-nowrap ${activeZone === zone ? "bg-blue-600 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"}`}>
-                            {zone} 구역
-                        </button>
-                    ))}
-                </div>
-                <div className="flex-1 overflow-y-auto p-5 bg-black/30">
-                    {loading ? <div className="text-center py-10">로딩 중...</div> : (
-                        <div className="space-y-6">
-                            {rackKeys.map((rack: any) => (
-                                <div key={rack} className="bg-black border border-gray-800 rounded-lg p-4">
-                                    <h3 className="text-lg font-bold text-gray-400 mb-3 border-b border-gray-800 pb-2">Rack {rack}</h3>
-                                    <div className="flex flex-wrap gap-2">
-                                        {filteredLocs.filter((l:any) => l.rack_no === rack).map((loc:any) => (
-                                            <button key={loc.loc_id} onClick={() => onSelect(loc.loc_id)} className="px-3 py-2 bg-gray-900 border border-gray-700 rounded hover:bg-blue-600 hover:border-blue-400 hover:text-white transition text-sm text-blue-400 font-bold min-w-[80px]">
-                                                {loc.loc_id}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
 }
