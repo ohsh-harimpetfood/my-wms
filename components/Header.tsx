@@ -144,7 +144,7 @@ export default function Header() {
             </Link>
 
             <Link 
-              href="/outbound/new" 
+              href="/outbound" 
               className={`flex items-center gap-2 px-3 py-2 rounded-md transition-colors
                 ${isActive("/outbound") ? "bg-gray-800 text-white" : "hover:text-white hover:bg-gray-800/50"}`}
             >

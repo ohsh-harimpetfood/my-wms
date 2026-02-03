@@ -1,15 +1,25 @@
-// app/outbound/new/page.tsx
 "use client";
 
 import { createClient } from "@/utils/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useEffect } from "react";
-import { ArrowLeft, Box, MapPin, Package } from "lucide-react";
+import { useState, useEffect, Suspense } from "react";
+import { ArrowLeft, Box, MapPin, Package, AlertTriangle } from "lucide-react";
+import { useUI } from "@/context/UIProvider"; // ✨ UI 컨텍스트 사용
 
+// 🚀 useSearchParams를 사용하는 컴포넌트는 Suspense로 감싸야 함 (Next.js 권장)
 export default function NewOutboundPage() {
+  return (
+    <Suspense fallback={<div className="text-white text-center py-20">로딩 중...</div>}>
+      <OutboundForm />
+    </Suspense>
+  );
+}
+
+function OutboundForm() {
   const router = useRouter();
   const supabase = createClient();
   const searchParams = useSearchParams();
+  const { alert, confirm, toast } = useUI(); // ✨ 커스텀 UI 훅
 
   // URL 파라미터에서 초기값 읽기
   const paramLoc = searchParams.get("loc") || "";
@@ -29,7 +39,7 @@ export default function NewOutboundPage() {
   const [itemName, setItemName] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // 품목 이름 가져오기 (UX 향상)
+  // 품목 이름 가져오기
   useEffect(() => {
     const fetchItemName = async () => {
         if (!formData.item_key) return;
@@ -37,25 +47,33 @@ export default function NewOutboundPage() {
         if (data) setItemName(data.item_name);
     };
     fetchItemName();
-  }, [formData.item_key]);
+  }, [formData.item_key, supabase]);
 
-// 저장 핸들러
+  // 저장 핸들러
   const handleSave = async () => {
     const qty = Number(formData.out_qty);
 
+    // 1. 유효성 검사 (기존 alert -> useUI.alert)
     if (!qty || qty <= 0) {
-        alert("출고 수량을 입력해주세요.");
+        await alert("출고 수량을 입력해주세요.", "error");
         return;
     }
     if (paramMaxQty > 0 && qty > paramMaxQty) {
-        alert(`현재 재고(${paramMaxQty})보다 많은 수량을 출고할 수 없습니다.`);
+        await alert(`현재 재고(${paramMaxQty.toLocaleString()})보다 많은 수량을 출고할 수 없습니다.`, "error");
         return;
     }
 
+    // 2. 최종 확인 (confirm)
+    const isConfirmed = await confirm(
+        `정말 출고하시겠습니까?\n\n품목: ${itemName}\n수량: ${qty.toLocaleString()} EA`, 
+        "warning" // 빨간색 버튼 테마
+    );
+    if (!isConfirmed) return;
+
     setLoading(true);
     try {
-        // 1. 재고 차감 (Inventory)
-        const { data: currentInv } = await supabase
+        // 3. 재고 차감 로직 (Transaction)
+        const { data: currentInv, error: invError } = await supabase
             .from("inventory")
             .select("id, quantity")
             .eq("location_code", formData.location_code)
@@ -63,28 +81,24 @@ export default function NewOutboundPage() {
             .eq("lot_no", formData.lot_no)
             .single();
 
-        if (!currentInv) throw new Error("해당 재고를 찾을 수 없습니다.");
+        if (invError || !currentInv) throw new Error("해당 재고를 찾을 수 없습니다. 이미 출고되었거나 삭제된 데이터일 수 있습니다.");
         
         const newQty = currentInv.quantity - qty;
-        if (newQty < 0) throw new Error("재고가 부족합니다.");
+        if (newQty < 0) throw new Error("시스템 재고 부족 오류 (동시성 문제)");
 
-        // ✨ [수정된 부분] 0이면 삭제, 남으면 업데이트
+        // (A) 전량 출고 시 삭제
         if (newQty === 0) {
-            // (A) 전량 출고 시 데이터 삭제 (Clean DB Policy) 🧹
-            await supabase
-                .from("inventory")
-                .delete()
-                .eq("id", currentInv.id);
+            await supabase.from("inventory").delete().eq("id", currentInv.id);
         } else {
-            // (B) 부분 출고 시 수량 업데이트 📉
-            await supabase
-                .from("inventory")
-                .update({ quantity: newQty, updated_at: new Date().toISOString() })
-                .eq("id", currentInv.id);
+            // (B) 부분 출고 시 업데이트
+            await supabase.from("inventory").update({ 
+                quantity: newQty, 
+                updated_at: new Date().toISOString() 
+            }).eq("id", currentInv.id);
         }
 
-        // 2. 수불 이력 생성 (Stock Transaction) - 이력은 영구 보존
-        await supabase.from("stock_tx").insert({
+        // 4. 수불 이력 생성
+        const { error: txError } = await supabase.from("stock_tx").insert({
             transaction_type: 'OUTBOUND',
             io_type: 'OUT',
             location_code: formData.location_code,
@@ -94,94 +108,130 @@ export default function NewOutboundPage() {
             remark: formData.remark || '출고 등록'
         });
 
-        alert("출고 처리가 완료되었습니다.");
+        if (txError) throw txError;
+
+        // 5. 완료 처리
+        await alert("출고 처리가 완료되었습니다.", "success");
         router.push("/inventory"); 
         router.refresh();
 
     } catch (e: any) {
         console.error(e);
-        alert("오류 발생: " + e.message);
+        await alert("오류 발생: " + e.message, "error");
     } finally {
         setLoading(false);
     }
   };
 
   return (
-    <div className="p-8 bg-black min-h-screen text-white font-[family-name:var(--font-geist-sans)] max-w-2xl mx-auto">
+    <div className="p-4 md:p-8 bg-black min-h-screen text-white font-[family-name:var(--font-geist-sans)] flex items-center justify-center">
       
-      <div className="flex items-center gap-4 mb-8 border-b border-gray-800 pb-4">
-        <button onClick={() => router.back()} className="text-gray-400 hover:text-white"><ArrowLeft /></button>
-        <h1 className="text-2xl font-bold text-red-500">📤 출고 등록 (Outbound)</h1>
-      </div>
+      <div className="w-full max-w-2xl animate-fade-in">
+        <div className="flex items-center gap-4 mb-6 border-b border-gray-800 pb-4">
+            <button onClick={() => router.back()} className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition"><ArrowLeft /></button>
+            <h1 className="text-2xl font-bold text-red-500 flex items-center gap-2">
+                <AlertTriangle className="animate-pulse" /> 
+                출고 등록 (Outbound)
+            </h1>
+        </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 shadow-2xl space-y-6">
-        
-        {/* 선택된 재고 정보 요약 카드 */}
-        <div className="bg-black border border-gray-700 rounded-lg p-5 flex flex-col gap-3">
-            <h3 className="text-gray-400 text-sm font-bold border-b border-gray-800 pb-2 mb-1">출고 대상 정보</h3>
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 md:p-8 shadow-2xl space-y-6">
             
-            <div className="flex items-center gap-3">
-                <MapPin className="text-blue-500" size={20} />
-                <span className="text-lg font-bold text-white">{formData.location_code}</span>
+            {/* 선택된 재고 정보 요약 카드 */}
+            <div className="bg-black/50 border border-gray-700 rounded-xl p-5 flex flex-col gap-4">
+                <div className="flex justify-between items-start border-b border-gray-800 pb-3 mb-1">
+                    <span className="text-gray-400 text-xs font-bold uppercase tracking-wider">Target Inventory</span>
+                    <span className="bg-red-900/30 text-red-400 border border-red-900/50 text-[10px] px-2 py-0.5 rounded font-bold">출고 대상</span>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-blue-900/20 flex items-center justify-center text-blue-500 border border-blue-900/50"><MapPin size={20} /></div>
+                        <div>
+                            <div className="text-gray-500 text-xs">Location</div>
+                            <div className="text-white font-bold text-lg">{formData.location_code}</div>
+                        </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-yellow-900/20 flex items-center justify-center text-yellow-500 border border-yellow-900/50"><Package size={20} /></div>
+                        <div className="overflow-hidden">
+                            <div className="text-gray-500 text-xs">Item</div>
+                            <div className="text-white font-bold truncate">{itemName || formData.item_key}</div>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 md:col-span-2">
+                        <div className="w-10 h-10 rounded-full bg-green-900/20 flex items-center justify-center text-green-500 border border-green-900/50"><Box size={20} /></div>
+                        <div className="flex-1 flex justify-between items-center">
+                            <div>
+                                <div className="text-gray-500 text-xs">LOT No.</div>
+                                <div className="text-white font-mono">{formData.lot_no}</div>
+                            </div>
+                            <div className="text-right">
+                                <div className="text-gray-500 text-xs">Current Stock</div>
+                                <div className="text-blue-400 font-bold text-xl">{paramMaxQty.toLocaleString()} <span className="text-sm text-gray-600">EA</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
-            
-            <div className="flex items-center gap-3">
-                <Package className="text-yellow-500" size={20} />
+
+            {/* 입력 폼 */}
+            <div className="space-y-6 pt-2">
                 <div>
-                    <div className="text-white font-bold text-lg">{itemName || formData.item_key}</div>
-                    <div className="text-gray-500 text-xs">{formData.item_key}</div>
+                    <label className="block text-sm text-gray-400 mb-2 font-bold">출고 수량 (Out Qty)</label>
+                    <div className="relative group">
+                        <input 
+                            type="number" 
+                            value={formData.out_qty}
+                            onChange={(e) => setFormData({...formData, out_qty: e.target.value})}
+                            className="w-full bg-black border border-gray-700 rounded-xl p-4 text-white outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all text-right text-3xl font-bold placeholder:text-gray-800"
+                            placeholder="0"
+                            autoFocus
+                        />
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-600 font-bold text-sm bg-gray-900 px-2 py-1 rounded border border-gray-800">EA/KG</span>
+                    </div>
+                    {paramMaxQty > 0 && (
+                        <div className="flex justify-end mt-2">
+                            <button 
+                                onClick={() => setFormData({...formData, out_qty: String(paramMaxQty)})}
+                                className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2"
+                            >
+                                전량 출고 ({paramMaxQty.toLocaleString()})
+                            </button>
+                        </div>
+                    )}
                 </div>
-            </div>
 
-            <div className="flex items-center gap-3">
-                <Box className="text-green-500" size={20} />
-                <div className="flex gap-4 text-sm">
-                    <span className="text-gray-400">LOT: <span className="text-white font-mono">{formData.lot_no}</span></span>
-                    <span className="text-gray-400">현재고: <span className="text-blue-400 font-bold">{paramMaxQty.toLocaleString()}</span></span>
-                </div>
-            </div>
-        </div>
-
-        {/* 입력 폼 */}
-        <div className="space-y-4 pt-2">
-            <div>
-                <label className="block text-sm text-gray-400 mb-2">출고 수량</label>
-                <div className="relative">
+                <div>
+                    <label className="block text-sm text-gray-400 mb-2">비고 (Remark)</label>
                     <input 
-                        type="number" 
-                        value={formData.out_qty}
-                        onChange={(e) => setFormData({...formData, out_qty: e.target.value})}
-                        className="w-full bg-black border border-gray-700 rounded p-4 text-white outline-none focus:border-red-500 text-right text-2xl font-bold"
-                        placeholder="0"
-                        autoFocus
+                        type="text" 
+                        value={formData.remark}
+                        onChange={(e) => setFormData({...formData, remark: e.target.value})}
+                        className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white outline-none focus:border-gray-500 transition-colors"
+                        placeholder="출고 사유 또는 메모 입력"
                     />
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-600 text-sm">EA/KG</span>
                 </div>
-                {paramMaxQty > 0 && (
-                    <p className="text-right text-xs text-gray-500 mt-1">최대 {paramMaxQty.toLocaleString()}까지 가능</p>
+            </div>
+
+            <button 
+                onClick={handleSave}
+                disabled={loading}
+                className="w-full bg-gradient-to-r from-red-700 to-red-600 hover:from-red-600 hover:to-red-500 text-white font-bold py-4 rounded-xl text-lg shadow-lg shadow-red-900/30 transition-all transform active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed mt-4 flex items-center justify-center gap-2"
+            >
+                {loading ? (
+                    <>
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                        처리 중...
+                    </>
+                ) : (
+                    <>📤 출고 확정 (Confirm)</>
                 )}
-            </div>
+            </button>
 
-            <div>
-                <label className="block text-sm text-gray-400 mb-2">비고</label>
-                <input 
-                    type="text" 
-                    value={formData.remark}
-                    onChange={(e) => setFormData({...formData, remark: e.target.value})}
-                    className="w-full bg-black border border-gray-700 rounded p-3 text-white outline-none focus:border-red-500"
-                    placeholder="출고 사유 입력"
-                />
-            </div>
         </div>
-
-        <button 
-            onClick={handleSave}
-            disabled={loading}
-            className="w-full bg-red-700 hover:bg-red-600 text-white font-bold py-4 rounded-lg text-lg shadow-lg shadow-red-900/20 transition disabled:opacity-50 mt-4"
-        >
-            {loading ? "처리 중..." : "출고 확정 (Release)"}
-        </button>
-
       </div>
     </div>
   );

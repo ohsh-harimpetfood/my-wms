@@ -51,11 +51,21 @@ async function fetchAllData(
 }
 
 /**
- * ✅ 1. 모든 로케이션 정보 가져오기 (Zone 데이터 보정 포함)
- * - 용도: 랙 리스트 생성, 맵 그리기
+ * ✅ 1. 모든 로케이션 정보 가져오기 (수정됨: 모달 깨짐 방지)
+ * - 기존: zone, loc_id만 가져와서 모달에서 정보 부족 발생
+ * - 수정: '*' (모든 컬럼) + inventory (재고 상태) 포함
  */
 export const getAllLocations = async (supabase: SupabaseClient) => {
-  const data = await fetchAllData(supabase, 'loc_master', 'zone, loc_id', { 
+  // 🚨 [핵심 수정] 랙 정보를 그리기 위해 모든 컬럼(*)과 재고 정보를 가져옵니다.
+  const selectQuery = `
+    *,
+    inventory (
+      quantity,
+      item_master ( item_name )
+    )
+  `;
+
+  const data = await fetchAllData(supabase, 'loc_master', selectQuery, { 
     activeOnly: true, 
     orderCol: 'loc_id' 
   });
@@ -92,7 +102,7 @@ export const getAllInventory = async (supabase: SupabaseClient) => {
  * - 용도: 검색창 자동완성
  */
 export const getAllItems = async (supabase: SupabaseClient) => {
-  // 품목은 너무 많을 수 있으니 일단 5000개 제한 (필요시 fetchAllData로 변경)
+  // 품목은 5000개 제한 (성능 고려)
   const { data, error } = await supabase
     .from('item_master')
     .select('item_key, item_name, uom, remark')
@@ -104,19 +114,6 @@ export const getAllItems = async (supabase: SupabaseClient) => {
 };
 
 /**
- * 🧩 [Util] 로케이션 리스트에서 고유한 Zone 목록만 추출
- */
-export const extractUniqueZones = (locations: any[]) => {
-  const zoneSet = new Set<string>();
-  locations.forEach((loc) => {
-    if (loc.zone) zoneSet.add(loc.zone);
-  });
-  return Array.from(zoneSet).sort();
-};
-
-// utils/wms.ts (기존 코드 아래에 추가)
-
-/**
  * ✅ 4. 모든 수불 트랜잭션 가져오기
  * - 용도: 수불 이력 조회
  */
@@ -125,6 +122,17 @@ export const getAllTransactions = async (supabase: SupabaseClient) => {
     supabase, 
     'stock_tx', 
     '*, item_master(item_name, item_key, uom)', 
-    { orderCol: 'transaction_date' } // 날짜순 정렬
+    { orderCol: 'transaction_date' } 
   );
+};
+
+/**
+ * 🧩 [Util] 로케이션 리스트에서 고유한 Zone 목록만 추출
+ */
+export const extractUniqueZones = (locations: any[]) => {
+  const zoneSet = new Set<string>();
+  locations.forEach((loc) => {
+    if (loc.zone) zoneSet.add(loc.zone);
+  });
+  return Array.from(zoneSet).sort();
 };

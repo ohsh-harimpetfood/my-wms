@@ -4,6 +4,7 @@ import "./globals.css";
 import Header from "@/components/Header";
 import SystemBoot from "@/components/SystemBoot";
 import MobileBottomNav from "@/components/MobileBottomNav";
+import { UIProvider } from "@/context/UIProvider"; // ✨ [추가] UI 통합 관리자 임포트
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -23,27 +24,25 @@ export default function RootLayout({
         className={`${inter.className} antialiased bg-gray-950 text-white`}
         suppressHydrationWarning={true}
       >
-        <SystemBoot />
-
-        {/* ✨ PC용 헤더 
-          - hidden lg:block : 기본은 숨기고, lg(1024px) 이상일 때만 보이게 함
+        {/* ✨ [수정] UIProvider로 전체 앱을 감쌉니다. 
+            이제 모든 컴포넌트에서 useUI()를 사용할 수 있습니다. 
         */}
-        <div className="hidden lg:block">
-          <Header />
-        </div>
+        <UIProvider>
+          <SystemBoot />
 
-        {/* ✨ 메인 컨텐츠 영역
-          - pb-20 : 폰/태블릿에서는 하단 네비게이션에 가려지지 않게 여백을 넉넉히 줌
-          - lg:pb-6 : PC에서는 하단 네비게이션이 없으므로 일반 여백으로 줄임
-        */}
-        <main className="max-w-7xl mx-auto p-6 pb-20 lg:pb-6">
-          {children}
-        </main>
+          {/* PC용 헤더 */}
+          <div className="hidden lg:block">
+            <Header />
+          </div>
 
-        {/* ✨ 모바일/태블릿용 하단 네비게이션 
-          - 컴포넌트 내부에서 lg:hidden 처리가 되어 있어 PC에선 자동 숨김
-        */}
-        <MobileBottomNav />
+          {/* 메인 컨텐츠 영역 */}
+          <main className="max-w-7xl mx-auto p-6 pb-20 lg:pb-6">
+            {children}
+          </main>
+
+          {/* 모바일 하단 네비게이션 */}
+          <MobileBottomNav />
+        </UIProvider>
       </body>
     </html>
   );
