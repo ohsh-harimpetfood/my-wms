@@ -4,11 +4,21 @@ import { createClient } from "@/utils/supabase/client";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowLeft, Search, X } from "lucide-react"; 
-import { InboundMaster, InboundDetail, Item } from "@/types";
-// ✨ [중요] 표준 모달 컴포넌트 임포트
+import { InboundDetail, Item } from "@/types";
 import LocationSelectorModal from "@/components/LocationSelectorModal";
+// 🚀 상수 Import
+import { TX_TYPES, TxCode } from "@/constants/transaction";
 
-// DB에서 가져올 데이터 타입 정의
+// InboundMaster 타입 확장 (inbound_type 필드 추가)
+interface InboundMaster {
+  inbound_no: string;
+  inbound_type: TxCode; // ✨ DB에서 가져올 값
+  supplier_name: string;
+  plan_date: string;
+  status: string;
+  remark: string;
+}
+
 interface InboundDetailWithItem extends InboundDetail {
   item_master: Item;
 }
@@ -29,25 +39,14 @@ export default function InboundWorkPage() {
   const [inputQty, setInputQty] = useState("");
   const [expDate, setExpDate] = useState("");
   const [processing, setProcessing] = useState(false);
-
-  // 팝업 상태
   const [showLocModal, setShowLocModal] = useState(false);
 
   // 1. 데이터 불러오기
   const fetchData = async () => {
     // 마스터 정보
-    const { data: masterData } = await supabase
-      .from("inbound_master")
-      .select("*")
-      .eq("inbound_no", id)
-      .single();
-    
+    const { data: masterData } = await supabase.from("inbound_master").select("*").eq("inbound_no", id).single();
     // 상세 정보
-    const { data: detailData } = await supabase
-      .from("inbound_detail")
-      .select(`*, item_master (*)`)
-      .eq("inbound_no", id)
-      .order("item_key");
+    const { data: detailData } = await supabase.from("inbound_detail").select(`*, item_master (*)`).eq("inbound_no", id).order("item_key");
 
     if (masterData) setMaster(masterData as InboundMaster);
     if (detailData) setDetails(detailData as any[]);
@@ -62,8 +61,6 @@ export default function InboundWorkPage() {
   const handleSelect = (detail: InboundDetailWithItem) => {
     if (detail.status === 'COMPLETED') return;
     setSelectedDetail(detail);
-    
-    // 초기값 세팅
     const remainQty = detail.plan_qty - detail.received_qty;
     setInputQty(String(remainQty > 0 ? remainQty : 0));
     setLotNo(detail.item_master.lot_required === 'Y' ? '' : 'DEFAULT');
@@ -72,10 +69,7 @@ export default function InboundWorkPage() {
 
   // 3. 입고 실행
   const handleConfirm = async () => {
-    if (!selectedDetail || !locationCode || !inputQty) {
-      alert("위치와 수량은 필수입니다.");
-      return;
-    }
+    if (!selectedDetail || !locationCode || !inputQty) return alert("위치와 수량은 필수입니다.");
 
     setProcessing(true);
     try {
@@ -83,9 +77,7 @@ export default function InboundWorkPage() {
       const newReceivedQty = Number(selectedDetail.received_qty) + qtyNum;
 
       // A. 재고(Inventory) 등록
-      const { data: existInven } = await supabase
-        .from("inventory")
-        .select("id, quantity")
+      const { data: existInven } = await supabase.from("inventory").select("id, quantity")
         .eq("location_code", locationCode)
         .eq("item_key", selectedDetail.item_key)
         .eq("lot_no", lotNo || 'DEFAULT')
@@ -93,61 +85,44 @@ export default function InboundWorkPage() {
 
       if (existInven) {
         await supabase.from("inventory").update({
-          quantity: existInven.quantity + qtyNum,
-          updated_at: new Date().toISOString()
+          quantity: existInven.quantity + qtyNum, updated_at: new Date().toISOString()
         }).eq("id", existInven.id);
       } else {
-        // ✨ 위치 유효성 검증 (안전 장치)
+        // 위치 유효성 검증
         const { data: validLoc } = await supabase.from("loc_master").select("loc_id").eq("loc_id", locationCode).single();
         if(!validLoc) throw new Error(`존재하지 않는 위치 코드입니다: ${locationCode}`);
 
         await supabase.from("inventory").insert({
-          location_code: locationCode,
-          item_key: selectedDetail.item_key,
-          quantity: qtyNum,
-          lot_no: lotNo || 'DEFAULT',
-          exp_date: expDate || null,
-          status: 'AVAILABLE'
+          location_code: locationCode, item_key: selectedDetail.item_key, quantity: qtyNum,
+          lot_no: lotNo || 'DEFAULT', exp_date: expDate || null, status: 'AVAILABLE'
         });
       }
 
       // B. 입고 상세 업데이트
       const newDetailStatus = newReceivedQty >= selectedDetail.plan_qty ? 'COMPLETED' : 'PENDING';
-      
-      await supabase.from("inbound_detail").update({
-        received_qty: newReceivedQty,
-        status: newDetailStatus
-      }).eq("id", selectedDetail.id);
+      await supabase.from("inbound_detail").update({ received_qty: newReceivedQty, status: newDetailStatus }).eq("id", selectedDetail.id);
 
-      // C. 수불 이력
+      // C. 수불 이력 (🚀 tx_code 적용)
       await supabase.from("stock_tx").insert({
         transaction_type: 'INBOUND',
+        io_type: 'IN',
+        tx_code: master?.inbound_type || 'IN_ETC', // ✨ 마스터의 입고 유형을 그대로 계승
         location_code: locationCode,
         item_key: selectedDetail.item_key,
         quantity: qtyNum,
         lot_no: lotNo || 'DEFAULT',
         ref_doc_no: String(id),
-        io_type: 'IN',
         remark: `입고작업: ${master?.supplier_name}`
       });
 
-      // D. 마스터 상태 업데이트
-      const { data: allDetails } = await supabase
-        .from("inbound_detail")
-        .select("id, status")
-        .eq("inbound_no", id);
-      
+      // D. 마스터 상태 업데이트 (기존 동일)
+      const { data: allDetails } = await supabase.from("inbound_detail").select("id, status").eq("inbound_no", id);
       if (allDetails) {
         const isAllCompleted = allDetails.every(detail => {
           if (detail.id === selectedDetail.id) return newDetailStatus === 'COMPLETED';
           return detail.status === 'COMPLETED';
         });
-
-        if (isAllCompleted) {
-            await supabase.from("inbound_master").update({ status: 'CLOSED' }).eq("inbound_no", id);
-        } else {
-            await supabase.from("inbound_master").update({ status: 'PARTIAL' }).eq("inbound_no", id);
-        }
+        await supabase.from("inbound_master").update({ status: isAllCompleted ? 'CLOSED' : 'PARTIAL' }).eq("inbound_no", id);
       }
 
       alert("입고 처리되었습니다.");
@@ -167,7 +142,6 @@ export default function InboundWorkPage() {
 
   return (
     <div className="p-8 bg-black min-h-screen text-white font-[family-name:var(--font-geist-sans)]">
-      
       {/* 상단 헤더 */}
       <div className="flex justify-between items-start mb-6 border-b border-gray-800 pb-4">
         <div>
@@ -175,10 +149,15 @@ export default function InboundWorkPage() {
             <button onClick={() => router.back()} className="text-gray-400 hover:text-white">← 뒤로</button>
             <h1 className="text-2xl font-bold">🚛 입고 작업 (Work)</h1>
           </div>
-          <div className="mt-2 text-gray-400">
-            번호: <span className="text-blue-400 font-mono mr-4">{master.inbound_no}</span>
-            공급처: <span className="text-white mr-4">{master.supplier_name}</span>
-            예정일: <span className="text-white">{master.plan_date}</span>
+          <div className="mt-2 text-gray-400 flex items-center gap-3">
+             {/* 🚀 입고 유형 뱃지 표시 */}
+             {master && TX_TYPES[master.inbound_type] && (
+                <span className={`text-xs px-2 py-0.5 rounded border bg-${TX_TYPES[master.inbound_type].color}-900/30 text-${TX_TYPES[master.inbound_type].color}-400 border-${TX_TYPES[master.inbound_type].color}-800`}>
+                    {TX_TYPES[master.inbound_type].label}
+                </span>
+             )}
+            <span>번호: <span className="text-blue-400 font-mono mr-2">{master.inbound_no}</span></span>
+            <span>공급처: <span className="text-white">{master.supplier_name}</span></span>
           </div>
         </div>
         <div className="text-right">

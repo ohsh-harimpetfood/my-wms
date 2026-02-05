@@ -4,8 +4,9 @@ import { createClient } from "@/utils/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import { ArrowLeft, ArrowRight, MapPin, Search, CheckCircle } from "lucide-react";
-// ✨ [중요] 내부 함수 대신 공용 컴포넌트 임포트 (경로 확인 필요)
-import LocationSelectorModal from "@/components/LocationSelectorModal"; 
+import LocationSelectorModal from "@/components/LocationSelectorModal";
+// 🚀 상수 Import
+import { TX_TYPES, TxCode } from "@/constants/transaction";
 
 export default function InventoryMovePage() {
   const router = useRouter();
@@ -25,9 +26,10 @@ export default function InventoryMovePage() {
   const [itemName, setItemName] = useState("");
   const [loading, setLoading] = useState(false);
   const [showLocModal, setShowLocModal] = useState(false);
-  
-  // ✨ 성공 모달 상태
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+
+  // 🚀 이동 유형 (현재는 '랙 이동' 하나지만, 나중에 '상태 변경' 등이 추가될 수 있음)
+  const moveType: TxCode = "MV_LOC"; 
 
   // 품목명 조회
   useEffect(() => {
@@ -35,15 +37,13 @@ export default function InventoryMovePage() {
         supabase.from("item_master").select("item_name").eq("item_key", itemKey).single()
         .then(({ data }) => { if(data) setItemName(data.item_name); });
     }
-  }, [itemKey]);
+  }, [itemKey, supabase]);
 
   // 이동 실행 핸들러
   const handleMove = async () => {
     if (!targetLoc) return alert("이동할 위치를 선택해주세요.");
     
-    // ✨ 수기 입력 시 대소문자 문제 방지
     const finalTargetLoc = targetLoc.toUpperCase();
-
     if (finalTargetLoc === sourceLoc) return alert("현재 위치와 동일한 곳으로 이동할 수 없습니다.");
     
     const qty = Number(moveQty);
@@ -87,7 +87,7 @@ export default function InventoryMovePage() {
                 updated_at: new Date().toISOString()
             }).eq("id", targetInv.id);
         } else {
-            // ✨ 위치 유효성 체크 (수기 입력 대비)
+            // 위치 유효성 체크
             const { data: validLoc } = await supabase.from("loc_master").select("loc_id").eq("loc_id", finalTargetLoc).single();
             if (!validLoc) throw new Error(`존재하지 않는 위치 코드입니다: ${finalTargetLoc}`);
 
@@ -100,11 +100,13 @@ export default function InventoryMovePage() {
             });
         }
 
-        // 3. 수불 이력
+        // 3. 수불 이력 (🚀 표준화 적용)
+        // 이동은 [출고]와 [입고]가 동시에 일어나는 행위이므로, tx_code는 동일하게 'MV_LOC'를 씁니다.
         const historyData = [
             {
                 transaction_type: 'MOVE',
                 io_type: 'OUT',
+                tx_code: moveType, // ✨ MV_LOC
                 location_code: sourceLoc,
                 item_key: itemKey,
                 lot_no: lotNo,
@@ -114,6 +116,7 @@ export default function InventoryMovePage() {
             {
                 transaction_type: 'MOVE',
                 io_type: 'IN',
+                tx_code: moveType, // ✨ MV_LOC
                 location_code: finalTargetLoc,
                 item_key: itemKey,
                 lot_no: lotNo,
@@ -146,11 +149,17 @@ export default function InventoryMovePage() {
       
       <div className="flex items-center gap-4 mb-8 border-b border-gray-800 pb-4 max-w-4xl mx-auto">
         <button onClick={() => router.back()} className="text-gray-400 hover:text-white"><ArrowLeft /></button>
-        <h1 className="text-2xl font-bold text-blue-500">📦 재고 이동 (Stock Move)</h1>
+        <div>
+            <h1 className="text-2xl font-bold text-blue-500">📦 재고 이동 (Stock Move)</h1>
+            {/* 🚀 이동 유형 표시 */}
+            <span className="text-xs bg-yellow-900/30 text-yellow-500 border border-yellow-800 px-2 py-0.5 rounded mt-1 inline-block font-bold">
+                {TX_TYPES[moveType].label}
+            </span>
+        </div>
       </div>
 
       <div className="max-w-4xl mx-auto flex flex-col md:flex-row gap-8 items-start">
-        {/* Source Card */}
+        {/* Source Card (기존 동일) */}
         <div className="flex-1 w-full bg-gray-900 border border-gray-800 rounded-xl p-6 opacity-80">
             <h2 className="text-lg font-bold text-gray-400 mb-4 flex items-center gap-2">📤 보내는 곳 (From)</h2>
             <div className="space-y-4">
@@ -178,14 +187,12 @@ export default function InventoryMovePage() {
 
         <div className="hidden md:flex self-center text-gray-600"><ArrowRight size={40} /></div>
 
-        {/* Target Card */}
+        {/* Target Card (기존 동일) */}
         <div className="flex-1 w-full bg-gray-900 border border-blue-900/30 rounded-xl p-6 shadow-xl shadow-blue-900/10">
             <h2 className="text-lg font-bold text-blue-400 mb-4 flex items-center gap-2">📥 받는 곳 (To)</h2>
             <div className="space-y-6">
                 <div>
                     <label className="block text-sm text-gray-400 mb-2">이동할 위치</label>
-                    
-                    {/* ✨ [수정] 수기 입력 + 모달 호출 버튼 결합 */}
                     <div className="flex items-center bg-black border border-blue-500 rounded-lg p-4 transition group focus-within:ring-2 focus-within:ring-blue-500/50">
                         <MapPin className="text-blue-500 mr-3" />
                         <input 
@@ -214,7 +221,6 @@ export default function InventoryMovePage() {
         </div>
       </div>
 
-      {/* ✨ 공통 모달 사용 (app/inbound/direct와 동일) */}
       {showLocModal && (
         <LocationSelectorModal 
             onClose={() => setShowLocModal(false)}
@@ -222,7 +228,6 @@ export default function InventoryMovePage() {
         />
       )}
 
-      {/* ✨ 성공 메시지 박스 */}
       {showSuccessModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in">
           <div className="bg-[#1a1a1a] border border-gray-700 p-8 rounded-2xl shadow-2xl flex flex-col items-center max-w-sm w-full mx-4 transform transition-all scale-100">

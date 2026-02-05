@@ -3,10 +3,11 @@
 import { createClient } from "@/utils/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
-// ✨ CheckCircle 아이콘 추가
-import { ArrowLeft, Search, Package, CheckCircle } from "lucide-react";
+import { ArrowLeft, Search, Package, CheckCircle, Check } from "lucide-react";
 import { Item } from "@/types";
 import LocationSelectorModal from "@/components/LocationSelectorModal";
+// 🚀 상수 Import
+import { TX_TYPES, TxCode, getTxTypesByGroup } from '@/constants/transaction';
 
 export default function DirectInboundPage() {
   const router = useRouter();
@@ -21,6 +22,9 @@ export default function DirectInboundPage() {
   const [searchedLocations, setSearchedLocations] = useState<any[]>([]); 
 
   // 2. 입력 폼 상태
+  // 🚀 [신규] 입고 유형 상태 추가 (기본값: 구매 입고)
+  const [inboundType, setInboundType] = useState<TxCode>("IN_PURCHASE");
+  
   const [locationCode, setLocationCode] = useState(autoLoc);
   const [qty, setQty] = useState("");
   const [lotNo, setLotNo] = useState("");
@@ -34,11 +38,9 @@ export default function DirectInboundPage() {
   const [showLocDropdown, setShowLocDropdown] = useState(false);
   const [showLocModal, setShowLocModal] = useState(false);
   const [loading, setLoading] = useState(false);
-  
-  // ✨ [추가] 성공 메시지 모달 상태
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
-  // 초기 데이터 로드
+  // 초기 데이터 로드 (기존 동일)
   useEffect(() => {
     const fetchData = async () => {
       const { data: itemData } = await supabase.from("item_master").select("*").eq("active_flag", "Y");
@@ -53,19 +55,14 @@ export default function DirectInboundPage() {
     fetchData();
   }, [autoItem]);
 
-  // 위치 검색
+  // 위치 검색 (기존 동일)
   useEffect(() => {
     if (!locationCode) {
       setSearchedLocations([]);
       return;
     }
     const timer = setTimeout(async () => {
-      const { data } = await supabase
-        .from("loc_master")
-        .select("loc_id, zone")
-        .ilike("loc_id", `%${locationCode}%`) 
-        .eq("active_flag", "Y")
-        .range(0, 9);
+      const { data } = await supabase.from("loc_master").select("loc_id, zone").ilike("loc_id", `%${locationCode}%`).eq("active_flag", "Y").range(0, 9);
       if (data) setSearchedLocations(data);
     }, 300);
     return () => clearTimeout(timer);
@@ -74,8 +71,7 @@ export default function DirectInboundPage() {
   const handleSelectItem = (item: Item) => {
     setSelectedItem(item);
     setItemSearchTerm("");
-    const isLotRequired = item.lot_required === 'Y';
-    setLotNo(isLotRequired ? '' : 'DEFAULT');
+    setLotNo(item.lot_required === 'Y' ? '' : 'DEFAULT');
   };
 
   const handleSelectLocation = (locId: string) => {
@@ -84,29 +80,21 @@ export default function DirectInboundPage() {
     setShowLocModal(false);
   };
 
+  // --- 저장 로직 (수정됨) ---
   const handleSave = async () => {
-    if (!selectedItem || !locationCode || !qty) {
-      return alert("품목, 위치, 수량은 필수입니다.");
-    }
+    if (!selectedItem || !locationCode || !qty) return alert("품목, 위치, 수량은 필수입니다.");
+    
     setLoading(true);
-
     try {
       const qtyNum = Number(qty);
       if (qtyNum <= 0) throw new Error("수량은 0보다 커야 합니다.");
 
       // 위치 검증
-      const { data: locInfo, error: locError } = await supabase
-        .from("loc_master")
-        .select("loc_id")
-        .eq("loc_id", locationCode)
-        .single();
-
+      const { data: locInfo, error: locError } = await supabase.from("loc_master").select("loc_id").eq("loc_id", locationCode).single();
       if (locError || !locInfo) throw new Error(`유효하지 않은 위치 코드입니다.`);
 
-      // 재고 Upsert
-      const { data: existInven, error: fetchError } = await supabase
-        .from("inventory")
-        .select("id, quantity")
+      // 재고 Upsert (기존 동일)
+      const { data: existInven, error: fetchError } = await supabase.from("inventory").select("id, quantity")
         .eq("location_code", locationCode)
         .eq("item_key", selectedItem.item_key)
         .eq("lot_no", lotNo || 'DEFAULT')
@@ -119,16 +107,23 @@ export default function DirectInboundPage() {
         await supabase.from("inventory").update({ quantity: existInven.quantity + qtyNum, updated_at: nowISO }).eq("id", existInven.id);
       } else {
         await supabase.from("inventory").insert({
-            location_code: locationCode, item_key: selectedItem.item_key, quantity: qtyNum, lot_no: lotNo || 'DEFAULT', status: 'AVAILABLE', exp_date: expDate || null, inbound_date: nowISO, updated_at: nowISO
+            location_code: locationCode, item_key: selectedItem.item_key, quantity: qtyNum,
+            lot_no: lotNo || 'DEFAULT', status: 'AVAILABLE', exp_date: expDate || null, inbound_date: nowISO, updated_at: nowISO
           });
       }
 
-      // 수불 이력
+      // 🚀 수불 이력 생성 (표준화 적용)
       await supabase.from("stock_tx").insert({
-        transaction_type: 'DIRECT_IN', location_code: locationCode, item_key: selectedItem.item_key, quantity: qtyNum, lot_no: lotNo || 'DEFAULT', io_type: 'IN', remark: '즉시 입고'
+        transaction_type: 'INBOUND', // 대분류 통일
+        io_type: 'IN',
+        tx_code: inboundType,        // ✨ 선택한 유형 코드 저장 (예: IN_PURCHASE)
+        location_code: locationCode, 
+        item_key: selectedItem.item_key, 
+        quantity: qtyNum, 
+        lot_no: lotNo || 'DEFAULT', 
+        remark: `즉시 입고 (${TX_TYPES[inboundType].label})`
       });
 
-      // ✨ [변경] alert 대신 모달 띄우기 (페이지 이동은 모달 확인 버튼에서 처리)
       setShowSuccessModal(true);
 
     } catch (e: any) {
@@ -138,22 +133,16 @@ export default function DirectInboundPage() {
     }
   };
 
-  // ✨ [추가] 모달 확인 버튼 핸들러
   const handleSuccessConfirm = () => {
     setShowSuccessModal(false);
     router.push("/inventory");
     router.refresh();
   };
 
-  // 검색 로직
+  // 검색 필터링 (기존 동일)
   const filteredItems = items.filter(i => {
     const terms = itemSearchTerm.toLowerCase().trim().split(/\s+/); 
-    const targetText = `
-      ${i.item_name || ''} 
-      ${i.item_key || ''} 
-      ${i.remark || ''} 
-      ${i.barcode || ''}
-    `.toLowerCase();
+    const targetText = `${i.item_name || ''} ${i.item_key || ''} ${i.remark || ''}`.toLowerCase();
     return terms.every(term => targetText.includes(term));
   }).slice(0, 10);
 
@@ -167,6 +156,27 @@ export default function DirectInboundPage() {
 
       <div className="max-w-2xl mx-auto bg-gray-900 border border-gray-800 p-8 rounded-xl shadow-2xl relative">
         
+        {/* 🚀 [신규 UI] 입고 유형 선택 (버튼형 칩) */}
+        <div className="mb-8">
+            <label className="block text-sm text-gray-400 mb-3 font-bold">입고 유형 (Type)</label>
+            <div className="grid grid-cols-2 gap-2">
+                {getTxTypesByGroup('IN').map((type) => (
+                    <button
+                        key={type.code}
+                        onClick={() => setInboundType(type.code as TxCode)}
+                        className={`relative p-3 text-sm rounded border flex items-center justify-center gap-2 transition-all ${
+                            inboundType === type.code
+                                ? 'bg-yellow-600 border-yellow-500 text-white shadow-lg font-bold'
+                                : 'bg-black border-gray-700 text-gray-400 hover:bg-gray-800'
+                        }`}
+                    >
+                        {inboundType === type.code && <Check size={14} className="absolute left-3" />}
+                        {type.label}
+                    </button>
+                ))}
+            </div>
+        </div>
+
         {/* ... (품목 선택 UI - 기존과 동일) ... */}
         <div className="mb-6">
           <label className="block text-sm text-gray-400 mb-2">품목 선택</label>
@@ -309,23 +319,18 @@ export default function DirectInboundPage() {
         />
       )}
 
-      {/* ✨ [신규] 시스템 스타일 성공 메시지 박스 (모달) */}
+      {/* 성공 모달 (기존 동일) */}
       {showSuccessModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in">
           <div className="bg-[#1a1a1a] border border-gray-700 p-8 rounded-2xl shadow-2xl flex flex-col items-center max-w-sm w-full mx-4 transform transition-all scale-100">
-            {/* 아이콘 원형 배경 */}
             <div className="w-20 h-20 bg-green-500/10 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(34,197,94,0.2)]">
                <CheckCircle className="text-green-500 w-10 h-10" strokeWidth={3} />
             </div>
-            
-            {/* 메시지 내용 */}
             <h3 className="text-2xl font-bold text-white mb-2">입고 완료</h3>
             <p className="text-gray-400 text-center mb-8 leading-relaxed">
               입고 처리가 <span className="text-green-400 font-bold">정상적으로 완료</span>되었습니다.<br/>
               재고 현황 페이지로 이동합니다.
             </p>
-            
-            {/* 확인 버튼 */}
             <button 
               onClick={handleSuccessConfirm}
               className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-green-900/30 transition active:scale-95"

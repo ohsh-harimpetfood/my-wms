@@ -3,10 +3,11 @@
 import { createClient } from "@/utils/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, Suspense } from "react";
-import { ArrowLeft, Box, MapPin, Package, AlertTriangle } from "lucide-react";
-import { useUI } from "@/context/UIProvider"; // ✨ UI 컨텍스트 사용
+import { ArrowLeft, Box, MapPin, Package, AlertTriangle, Check } from "lucide-react";
+import { useUI } from "@/context/UIProvider"; 
+// 🚀 상수 import (경로 확인 필수!)
+import { TX_TYPES, TxCode, getTxTypesByGroup } from '@/constants/transaction'; 
 
-// 🚀 useSearchParams를 사용하는 컴포넌트는 Suspense로 감싸야 함 (Next.js 권장)
 export default function NewOutboundPage() {
   return (
     <Suspense fallback={<div className="text-white text-center py-20">로딩 중...</div>}>
@@ -19,7 +20,7 @@ function OutboundForm() {
   const router = useRouter();
   const supabase = createClient();
   const searchParams = useSearchParams();
-  const { alert, confirm, toast } = useUI(); // ✨ 커스텀 UI 훅
+  const { alert, confirm, toast } = useUI(); 
 
   // URL 파라미터에서 초기값 읽기
   const paramLoc = searchParams.get("loc") || "";
@@ -36,6 +37,9 @@ function OutboundForm() {
     remark: ""
   });
   
+  // 🚀 [신규] 출고 유형 상태 (기본값: 생산 투입)
+  const [txCode, setTxCode] = useState<TxCode>('OUT_PROD');
+
   const [itemName, setItemName] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -53,7 +57,6 @@ function OutboundForm() {
   const handleSave = async () => {
     const qty = Number(formData.out_qty);
 
-    // 1. 유효성 검사 (기존 alert -> useUI.alert)
     if (!qty || qty <= 0) {
         await alert("출고 수량을 입력해주세요.", "error");
         return;
@@ -63,16 +66,17 @@ function OutboundForm() {
         return;
     }
 
-    // 2. 최종 확인 (confirm)
+    // 🚀 확인 메시지에 출고 유형 포함
+    const txLabel = TX_TYPES[txCode].label;
     const isConfirmed = await confirm(
-        `정말 출고하시겠습니까?\n\n품목: ${itemName}\n수량: ${qty.toLocaleString()} EA`, 
-        "warning" // 빨간색 버튼 테마
+        `[${txLabel}]\n품목: ${itemName || formData.item_key}\n수량: ${qty.toLocaleString()} EA\n\n출고하시겠습니까?`, 
+        "warning"
     );
     if (!isConfirmed) return;
 
     setLoading(true);
     try {
-        // 3. 재고 차감 로직 (Transaction)
+        // 1. 재고 조회
         const { data: currentInv, error: invError } = await supabase
             .from("inventory")
             .select("id, quantity")
@@ -86,31 +90,30 @@ function OutboundForm() {
         const newQty = currentInv.quantity - qty;
         if (newQty < 0) throw new Error("시스템 재고 부족 오류 (동시성 문제)");
 
-        // (A) 전량 출고 시 삭제
+        // 2. 재고 차감 (업데이트 or 삭제)
         if (newQty === 0) {
             await supabase.from("inventory").delete().eq("id", currentInv.id);
         } else {
-            // (B) 부분 출고 시 업데이트
             await supabase.from("inventory").update({ 
                 quantity: newQty, 
                 updated_at: new Date().toISOString() 
             }).eq("id", currentInv.id);
         }
 
-        // 4. 수불 이력 생성
+        // 3. 수불 이력 생성 (🚀 tx_code 저장)
         const { error: txError } = await supabase.from("stock_tx").insert({
             transaction_type: 'OUTBOUND',
             io_type: 'OUT',
+            tx_code: txCode,               // ✨ 핵심: 선택한 유형 코드 저장
             location_code: formData.location_code,
             item_key: formData.item_key,
             lot_no: formData.lot_no,
             quantity: -qty, 
-            remark: formData.remark || '출고 등록'
+            remark: formData.remark || txLabel // 비고 없으면 유형명으로 대체
         });
 
         if (txError) throw txError;
 
-        // 5. 완료 처리
         await alert("출고 처리가 완료되었습니다.", "success");
         router.push("/inventory"); 
         router.refresh();
@@ -179,6 +182,30 @@ function OutboundForm() {
 
             {/* 입력 폼 */}
             <div className="space-y-6 pt-2">
+
+                {/* 🚀 [신규 UI] 출고 유형 선택 (버튼형 칩) */}
+                <div>
+                    <label className="block text-sm text-gray-400 mb-3 font-bold">출고 유형 (Issue Type)</label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                        {/* TX_TYPES 중 'OUT' 타입만 골라서 버튼 생성 */}
+                        {getTxTypesByGroup('OUT').map((type) => (
+                            <button
+                                key={type.code}
+                                onClick={() => setTxCode(type.code as TxCode)}
+                                className={`relative px-3 py-3 rounded-lg text-sm font-bold border transition-all flex items-center justify-center gap-2 ${
+                                    txCode === type.code
+                                        ? "bg-red-600 border-red-500 text-white shadow-lg shadow-red-900/50 ring-1 ring-red-400"
+                                        : "bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700 hover:text-gray-200"
+                                }`}
+                            >
+                                {/* 선택된 항목에 체크 표시 */}
+                                {txCode === type.code && <Check size={14} className="absolute left-2 text-white/70" />}
+                                {type.label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
                 <div>
                     <label className="block text-sm text-gray-400 mb-2 font-bold">출고 수량 (Out Qty)</label>
                     <div className="relative group">
@@ -205,13 +232,13 @@ function OutboundForm() {
                 </div>
 
                 <div>
-                    <label className="block text-sm text-gray-400 mb-2">비고 (Remark)</label>
+                    <label className="block text-sm text-gray-400 mb-2">비고 (선택사항)</label>
                     <input 
                         type="text" 
                         value={formData.remark}
                         onChange={(e) => setFormData({...formData, remark: e.target.value})}
-                        className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white outline-none focus:border-gray-500 transition-colors"
-                        placeholder="출고 사유 또는 메모 입력"
+                        className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white outline-none focus:border-gray-500 transition-colors placeholder:text-gray-600"
+                        placeholder="특이사항이 있을 경우에만 입력하세요."
                     />
                 </div>
             </div>
