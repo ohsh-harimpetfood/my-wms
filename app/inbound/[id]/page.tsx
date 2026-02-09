@@ -3,16 +3,16 @@
 import { createClient } from "@/utils/supabase/client";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Search, X } from "lucide-react"; 
+import { ArrowLeft, Search } from "lucide-react"; 
 import { InboundDetail, Item } from "@/types";
 import LocationSelectorModal from "@/components/LocationSelectorModal";
-// 🚀 상수 Import
 import { TX_TYPES, TxCode } from "@/constants/transaction";
+import { useAuth } from "@/context/AuthProvider"; // ✨ [추가]
 
-// InboundMaster 타입 확장 (inbound_type 필드 추가)
+// InboundMaster 타입 (기존과 동일)
 interface InboundMaster {
   inbound_no: string;
-  inbound_type: TxCode; // ✨ DB에서 가져올 값
+  inbound_type: TxCode;
   supplier_name: string;
   plan_date: string;
   status: string;
@@ -27,6 +27,7 @@ export default function InboundWorkPage() {
   const { id } = useParams();
   const router = useRouter();
   const supabase = createClient();
+  const { user } = useAuth(); // ✨ [추가]
 
   const [master, setMaster] = useState<InboundMaster | null>(null);
   const [details, setDetails] = useState<InboundDetailWithItem[]>([]);
@@ -41,11 +42,9 @@ export default function InboundWorkPage() {
   const [processing, setProcessing] = useState(false);
   const [showLocModal, setShowLocModal] = useState(false);
 
-  // 1. 데이터 불러오기
+  // 1. 데이터 불러오기 (기존 동일)
   const fetchData = async () => {
-    // 마스터 정보
     const { data: masterData } = await supabase.from("inbound_master").select("*").eq("inbound_no", id).single();
-    // 상세 정보
     const { data: detailData } = await supabase.from("inbound_detail").select(`*, item_master (*)`).eq("inbound_no", id).order("item_key");
 
     if (masterData) setMaster(masterData as InboundMaster);
@@ -57,7 +56,7 @@ export default function InboundWorkPage() {
     if (id) fetchData();
   }, [id]);
 
-  // 2. 품목 선택 핸들러
+  // 2. 품목 선택 핸들러 (기존 동일)
   const handleSelect = (detail: InboundDetailWithItem) => {
     if (detail.status === 'COMPLETED') return;
     setSelectedDetail(detail);
@@ -69,6 +68,7 @@ export default function InboundWorkPage() {
 
   // 3. 입고 실행
   const handleConfirm = async () => {
+    if (!user) return alert("로그인 정보가 없습니다."); // ✨ 안전장치
     if (!selectedDetail || !locationCode || !inputQty) return alert("위치와 수량은 필수입니다.");
 
     setProcessing(true);
@@ -85,16 +85,22 @@ export default function InboundWorkPage() {
 
       if (existInven) {
         await supabase.from("inventory").update({
-          quantity: existInven.quantity + qtyNum, updated_at: new Date().toISOString()
+          quantity: existInven.quantity + qtyNum, 
+          updated_at: new Date().toISOString(),
+          updated_by: user.id // ✨ 수정한 사람 기록
         }).eq("id", existInven.id);
       } else {
-        // 위치 유효성 검증
         const { data: validLoc } = await supabase.from("loc_master").select("loc_id").eq("loc_id", locationCode).single();
         if(!validLoc) throw new Error(`존재하지 않는 위치 코드입니다: ${locationCode}`);
 
         await supabase.from("inventory").insert({
-          location_code: locationCode, item_key: selectedDetail.item_key, quantity: qtyNum,
-          lot_no: lotNo || 'DEFAULT', exp_date: expDate || null, status: 'AVAILABLE'
+          location_code: locationCode, 
+          item_key: selectedDetail.item_key, 
+          quantity: qtyNum,
+          lot_no: lotNo || 'DEFAULT', 
+          exp_date: expDate || null, 
+          status: 'AVAILABLE',
+          updated_by: user.id // ✨ 생성한 사람 기록 (여기선 updated_by 컬럼 활용)
         });
       }
 
@@ -102,17 +108,18 @@ export default function InboundWorkPage() {
       const newDetailStatus = newReceivedQty >= selectedDetail.plan_qty ? 'COMPLETED' : 'PENDING';
       await supabase.from("inbound_detail").update({ received_qty: newReceivedQty, status: newDetailStatus }).eq("id", selectedDetail.id);
 
-      // C. 수불 이력 (🚀 tx_code 적용)
+      // C. 수불 이력
       await supabase.from("stock_tx").insert({
         transaction_type: 'INBOUND',
         io_type: 'IN',
-        tx_code: master?.inbound_type || 'IN_ETC', // ✨ 마스터의 입고 유형을 그대로 계승
+        tx_code: master?.inbound_type || 'IN_ETC',
         location_code: locationCode,
         item_key: selectedDetail.item_key,
         quantity: qtyNum,
         lot_no: lotNo || 'DEFAULT',
         ref_doc_no: String(id),
-        remark: `입고작업: ${master?.supplier_name}`
+        remark: `입고작업: ${master?.supplier_name}`,
+        created_by: user.id // ✨ 작업자 기록
       });
 
       // D. 마스터 상태 업데이트 (기존 동일)
@@ -142,7 +149,6 @@ export default function InboundWorkPage() {
 
   return (
     <div className="p-8 bg-black min-h-screen text-white font-[family-name:var(--font-geist-sans)]">
-      {/* 상단 헤더 */}
       <div className="flex justify-between items-start mb-6 border-b border-gray-800 pb-4">
         <div>
           <div className="flex items-center gap-3">
@@ -150,7 +156,6 @@ export default function InboundWorkPage() {
             <h1 className="text-2xl font-bold">🚛 입고 작업 (Work)</h1>
           </div>
           <div className="mt-2 text-gray-400 flex items-center gap-3">
-             {/* 🚀 입고 유형 뱃지 표시 */}
              {master && TX_TYPES[master.inbound_type] && (
                 <span className={`text-xs px-2 py-0.5 rounded border bg-${TX_TYPES[master.inbound_type].color}-900/30 text-${TX_TYPES[master.inbound_type].color}-400 border-${TX_TYPES[master.inbound_type].color}-800`}>
                     {TX_TYPES[master.inbound_type].label}
@@ -170,10 +175,9 @@ export default function InboundWorkPage() {
             </div>
         </div>
       </div>
-
+      
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* 1. 좌측: 리스트 */}
+         {/* 좌측 리스트 */}
         <div className="lg:col-span-2 space-y-3">
           <h2 className="text-lg font-bold mb-2">📥 입고 예정 품목</h2>
           {details.map((row) => {
@@ -212,7 +216,7 @@ export default function InboundWorkPage() {
           })}
         </div>
 
-        {/* 2. 우측: 작업 입력 폼 */}
+        {/* 우측 작업 폼 */}
         <div className="bg-gray-900 border border-gray-800 p-6 rounded-lg h-fit sticky top-6">
           <h2 className="text-lg font-bold mb-4">✍️ 실적 등록</h2>
           
@@ -225,7 +229,6 @@ export default function InboundWorkPage() {
                 <div className="font-bold text-lg text-blue-400">{selectedDetail.item_master.item_name}</div>
               </div>
 
-              {/* ✨ 위치 입력 (표준 모달 호출) */}
               <div>
                 <label className="block text-sm text-gray-400 mb-1">위치 (Location)</label>
                 <div 
@@ -236,8 +239,6 @@ export default function InboundWorkPage() {
                     <input 
                         type="text" 
                         placeholder="터치하여 위치 선택"
-                        // ✨ 수기 입력 가능하도록 readOnly 제거
-                        // readOnly 
                         className="bg-transparent outline-none text-white font-mono text-lg w-full cursor-pointer placeholder-gray-600 uppercase"
                         value={locationCode}
                         onChange={(e) => setLocationCode(e.target.value.toUpperCase())}
@@ -275,7 +276,6 @@ export default function InboundWorkPage() {
         </div>
       </div>
 
-      {/* ✨ 표준 모달 사용 */}
       {showLocModal && (
         <LocationSelectorModal 
             onClose={() => setShowLocModal(false)}
@@ -285,7 +285,6 @@ export default function InboundWorkPage() {
             }}
         />
       )}
-
     </div>
   );
 }

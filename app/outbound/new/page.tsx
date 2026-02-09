@@ -5,8 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, Suspense } from "react";
 import { ArrowLeft, Box, MapPin, Package, AlertTriangle, Check } from "lucide-react";
 import { useUI } from "@/context/UIProvider"; 
-// 🚀 상수 import (경로 확인 필수!)
 import { TX_TYPES, TxCode, getTxTypesByGroup } from '@/constants/transaction'; 
+import { useAuth } from "@/context/AuthProvider"; // ✨ [추가] 인증 훅
 
 export default function NewOutboundPage() {
   return (
@@ -21,6 +21,7 @@ function OutboundForm() {
   const supabase = createClient();
   const searchParams = useSearchParams();
   const { alert, confirm, toast } = useUI(); 
+  const { user } = useAuth(); // ✨ [추가] 유저 정보
 
   // URL 파라미터에서 초기값 읽기
   const paramLoc = searchParams.get("loc") || "";
@@ -55,6 +56,11 @@ function OutboundForm() {
 
   // 저장 핸들러
   const handleSave = async () => {
+    if (!user) { // ✨ 안전장치
+        await alert("로그인 세션이 만료되었습니다. 다시 로그인해주세요.", "error");
+        return;
+    }
+
     const qty = Number(formData.out_qty);
 
     if (!qty || qty <= 0) {
@@ -96,20 +102,22 @@ function OutboundForm() {
         } else {
             await supabase.from("inventory").update({ 
                 quantity: newQty, 
-                updated_at: new Date().toISOString() 
+                updated_at: new Date().toISOString(),
+                updated_by: user.id // ✨ 수정자 실명 기록
             }).eq("id", currentInv.id);
         }
 
-        // 3. 수불 이력 생성 (🚀 tx_code 저장)
+        // 3. 수불 이력 생성 (🚀 tx_code 및 created_by 저장)
         const { error: txError } = await supabase.from("stock_tx").insert({
             transaction_type: 'OUTBOUND',
             io_type: 'OUT',
-            tx_code: txCode,               // ✨ 핵심: 선택한 유형 코드 저장
+            tx_code: txCode,               // ✨ 선택한 유형 코드
             location_code: formData.location_code,
             item_key: formData.item_key,
             lot_no: formData.lot_no,
             quantity: -qty, 
-            remark: formData.remark || txLabel // 비고 없으면 유형명으로 대체
+            remark: formData.remark || txLabel, // 비고 없으면 유형명으로 대체
+            created_by: user.id            // ✨ 작업자 실명 기록
         });
 
         if (txError) throw txError;

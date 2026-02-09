@@ -1,10 +1,12 @@
 // app/inventory/page.tsx
 
 import { createClient } from "@/utils/supabase/server";
+import { redirect } from "next/navigation"; // ✨ 리다이렉트 함수 추가
 import InventorySearchForm from "@/components/InventorySearchForm";
-import InventoryListClient from "@/components/InventoryListClient"; // ✨ 새로 만든 클라이언트 컴포넌트
-import { getAllLocations, getAllInventory, getAllItems, extractUniqueZones } from "@/utils/wms";
+import InventoryListClient from "@/components/InventoryListClient";
+import { getAllLocations, getAllItems, extractUniqueZones } from "@/utils/wms";
 
+// 페이지 캐싱 방지 (실시간 데이터 중요)
 export const dynamic = 'force-dynamic';
 
 interface InventoryItem {
@@ -28,22 +30,31 @@ export default async function InventoryPage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
+  // 1. Supabase 서버 클라이언트 생성 (쿠키 포함)
   const supabase = await createClient();
   const params = await searchParams;
 
-  // 1. 기준 정보 조회
+  // 2. ✨ [보안 핵심] 사용자 세션 확인 (RLS 통과를 위해 필수)
+  // 미들웨어가 있지만, 서버 컴포넌트에서도 한 번 더 체크하면 안전합니다.
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  
+  if (authError || !user) {
+    redirect("/login"); // 로그인 안 되어 있으면 쫓아냄
+  }
+
+  // 3. 기준 정보 조회
   const [locations, items] = await Promise.all([
     getAllLocations(supabase),
     getAllItems(supabase)
   ]);
   const zones = extractUniqueZones(locations);
 
-  // 검색 전이면 폼만 보여줌
+  // 4. 검색 전이면 폼만 보여줌
   if (params.search !== "true") {
     return <InventorySearchForm zones={zones} items={items} />;
   }
 
-  // 2. 데이터 필터링 (서버 사이드)
+  // 5. 데이터 조회 및 필터링
   const page = params.page ? Number(params.page) : 1;
   const rawQuery = params.query ? String(params.query) : "";
   const query = decodeURIComponent(rawQuery).trim();
@@ -51,8 +62,28 @@ export default async function InventoryPage({
   const zonesParam = params.zones ? String(params.zones) : ""; 
   const ITEMS_PER_PAGE = 20; 
 
-  const rawInventory = await getAllInventory(supabase);
-  let filteredInventory = rawInventory as InventoryItem[];
+  // ✨ [중요] getAllInventory 함수 내부 로직 확인 필요
+  // 만약 getAllInventory가 단순히 select * from inventory라면
+  // 여기서 직접 쿼리를 작성하는 것이 RLS 디버깅에 더 좋습니다.
+  // 아래처럼 직접 호출하면 쿠키가 확실히 전달됩니다.
+  const { data: rawInventory, error: dbError } = await supabase
+    .from("inventory")
+    .select(`
+        *,
+        item_master!inner (
+            item_name,
+            uom
+        )
+    `)
+    .order("location_code", { ascending: true });
+
+  if (dbError) {
+    console.error("DB Error:", dbError);
+    // 에러 발생 시 빈 배열 처리 (화면이 터지는 것 방지)
+    return <div className="p-8 text-red-500">데이터 로딩 중 오류가 발생했습니다: {dbError.message}</div>;
+  }
+
+  let filteredInventory = (rawInventory || []) as InventoryItem[];
 
   // A. 랙(Zone) 필터링
   if (zonesParam) {
@@ -69,7 +100,7 @@ export default async function InventoryPage({
     filteredInventory = filteredInventory.filter(i => i.location_code.startsWith("2F"));
   }
 
-  // B. 서버 사이드 검색어 필터링
+  // B. 서버 사이드 검색어 필터링 (메모리 필터)
   if (query) {
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
     filteredInventory = filteredInventory.filter(item => {
@@ -88,7 +119,6 @@ export default async function InventoryPage({
   const startIdx = (page - 1) * ITEMS_PER_PAGE;
   const endIdx = startIdx + ITEMS_PER_PAGE;
   
-  // 🚀 [중요] 페이지네이션된 데이터만 클라이언트로 보냅니다.
   const paginatedInventory = filteredInventory.slice(startIdx, endIdx);
 
   const getConditionText = () => {
@@ -98,7 +128,6 @@ export default async function InventoryPage({
     return '[전체 구역]';
   };
 
-  // 🚀 클라이언트 컴포넌트로 데이터 위임
   return (
     <InventoryListClient 
         initialInventory={paginatedInventory}

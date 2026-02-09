@@ -6,13 +6,14 @@ import { useState, useEffect } from "react";
 import { ArrowLeft, Search, Package, CheckCircle, Check } from "lucide-react";
 import { Item } from "@/types";
 import LocationSelectorModal from "@/components/LocationSelectorModal";
-// 🚀 상수 Import
 import { TX_TYPES, TxCode, getTxTypesByGroup } from '@/constants/transaction';
+import { useAuth } from "@/context/AuthProvider"; // ✨ [추가]
 
 export default function DirectInboundPage() {
   const router = useRouter();
   const supabase = createClient();
   const searchParams = useSearchParams();
+  const { user } = useAuth(); // ✨ [추가]
 
   const autoLoc = searchParams.get("loc") || "";
   const autoItem = searchParams.get("item") || "";
@@ -22,9 +23,7 @@ export default function DirectInboundPage() {
   const [searchedLocations, setSearchedLocations] = useState<any[]>([]); 
 
   // 2. 입력 폼 상태
-  // 🚀 [신규] 입고 유형 상태 추가 (기본값: 구매 입고)
   const [inboundType, setInboundType] = useState<TxCode>("IN_PURCHASE");
-  
   const [locationCode, setLocationCode] = useState(autoLoc);
   const [qty, setQty] = useState("");
   const [lotNo, setLotNo] = useState("");
@@ -80,8 +79,8 @@ export default function DirectInboundPage() {
     setShowLocModal(false);
   };
 
-  // --- 저장 로직 (수정됨) ---
   const handleSave = async () => {
+    if (!user) return alert("로그인 정보가 없습니다."); // ✨ 안전장치
     if (!selectedItem || !locationCode || !qty) return alert("품목, 위치, 수량은 필수입니다.");
     
     setLoading(true);
@@ -89,11 +88,9 @@ export default function DirectInboundPage() {
       const qtyNum = Number(qty);
       if (qtyNum <= 0) throw new Error("수량은 0보다 커야 합니다.");
 
-      // 위치 검증
       const { data: locInfo, error: locError } = await supabase.from("loc_master").select("loc_id").eq("loc_id", locationCode).single();
       if (locError || !locInfo) throw new Error(`유효하지 않은 위치 코드입니다.`);
 
-      // 재고 Upsert (기존 동일)
       const { data: existInven, error: fetchError } = await supabase.from("inventory").select("id, quantity")
         .eq("location_code", locationCode)
         .eq("item_key", selectedItem.item_key)
@@ -104,24 +101,35 @@ export default function DirectInboundPage() {
       const nowISO = new Date().toISOString();
 
       if (existInven) {
-        await supabase.from("inventory").update({ quantity: existInven.quantity + qtyNum, updated_at: nowISO }).eq("id", existInven.id);
+        await supabase.from("inventory").update({ 
+            quantity: existInven.quantity + qtyNum, 
+            updated_at: nowISO,
+            updated_by: user.id // ✨ 수정자
+        }).eq("id", existInven.id);
       } else {
         await supabase.from("inventory").insert({
-            location_code: locationCode, item_key: selectedItem.item_key, quantity: qtyNum,
-            lot_no: lotNo || 'DEFAULT', status: 'AVAILABLE', exp_date: expDate || null, inbound_date: nowISO, updated_at: nowISO
-          });
+            location_code: locationCode, 
+            item_key: selectedItem.item_key, 
+            quantity: qtyNum, 
+            lot_no: lotNo || 'DEFAULT', 
+            status: 'AVAILABLE', 
+            exp_date: expDate || null, 
+            inbound_date: nowISO, 
+            updated_at: nowISO,
+            updated_by: user.id // ✨ 생성자
+        });
       }
 
-      // 🚀 수불 이력 생성 (표준화 적용)
       await supabase.from("stock_tx").insert({
-        transaction_type: 'INBOUND', // 대분류 통일
+        transaction_type: 'INBOUND',
         io_type: 'IN',
-        tx_code: inboundType,        // ✨ 선택한 유형 코드 저장 (예: IN_PURCHASE)
+        tx_code: inboundType,
         location_code: locationCode, 
         item_key: selectedItem.item_key, 
         quantity: qtyNum, 
         lot_no: lotNo || 'DEFAULT', 
-        remark: `즉시 입고 (${TX_TYPES[inboundType].label})`
+        remark: `즉시 입고 (${TX_TYPES[inboundType].label})`,
+        created_by: user.id // ✨ 작업자
       });
 
       setShowSuccessModal(true);
@@ -139,7 +147,6 @@ export default function DirectInboundPage() {
     router.refresh();
   };
 
-  // 검색 필터링 (기존 동일)
   const filteredItems = items.filter(i => {
     const terms = itemSearchTerm.toLowerCase().trim().split(/\s+/); 
     const targetText = `${i.item_name || ''} ${i.item_key || ''} ${i.remark || ''}`.toLowerCase();
@@ -156,7 +163,6 @@ export default function DirectInboundPage() {
 
       <div className="max-w-2xl mx-auto bg-gray-900 border border-gray-800 p-8 rounded-xl shadow-2xl relative">
         
-        {/* 🚀 [신규 UI] 입고 유형 선택 (버튼형 칩) */}
         <div className="mb-8">
             <label className="block text-sm text-gray-400 mb-3 font-bold">입고 유형 (Type)</label>
             <div className="grid grid-cols-2 gap-2">
@@ -177,7 +183,6 @@ export default function DirectInboundPage() {
             </div>
         </div>
 
-        {/* ... (품목 선택 UI - 기존과 동일) ... */}
         <div className="mb-6">
           <label className="block text-sm text-gray-400 mb-2">품목 선택</label>
           {selectedItem ? (
@@ -227,7 +232,6 @@ export default function DirectInboundPage() {
           )}
         </div>
 
-        {/* ... (위치 & 수량 UI - 기존과 동일) ... */}
         <div className="flex gap-4 mb-6 relative">
             <div className="flex-1 relative">
                 <label className="block text-sm text-gray-400 mb-2">위치</label>
@@ -275,7 +279,6 @@ export default function DirectInboundPage() {
             </div>
         </div>
 
-        {/* ... (로트 정보 UI - 기존과 동일) ... */}
         {selectedItem && (
              <div className="bg-gray-800/50 p-4 rounded-lg mb-8 border border-gray-700">
                 <div className="grid grid-cols-2 gap-4">
@@ -319,7 +322,6 @@ export default function DirectInboundPage() {
         />
       )}
 
-      {/* 성공 모달 (기존 동일) */}
       {showSuccessModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in">
           <div className="bg-[#1a1a1a] border border-gray-700 p-8 rounded-2xl shadow-2xl flex flex-col items-center max-w-sm w-full mx-4 transform transition-all scale-100">

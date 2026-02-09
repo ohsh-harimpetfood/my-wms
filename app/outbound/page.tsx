@@ -3,10 +3,10 @@
 import { createClient } from '@/utils/supabase/client';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, MapPin, Search, AlertTriangle, X, Loader2, Check } from 'lucide-react';
+import { ArrowLeft, MapPin, Search, AlertTriangle, X, Loader2, Check, Package, Box } from 'lucide-react';
 import { useUI } from '@/context/UIProvider';
-// 🚀 방금 만드신 상수 파일 import (경로 확인해주세요!)
 import { TX_TYPES, TxCode, getTxTypesByGroup } from '@/constants/transaction'; 
+import { useAuth } from "@/context/AuthProvider"; // ✨ [추가]
 
 interface StockItem {
   id: number;
@@ -30,6 +30,7 @@ export default function OutboundPage() {
   const router = useRouter();
   const supabase = createClient();
   const { alert, confirm, toast } = useUI();
+  const { user } = useAuth(); // ✨ [추가] 유저 정보
 
   // --- 상태 관리 ---
   const [keyword, setKeyword] = useState("");
@@ -38,7 +39,6 @@ export default function OutboundPage() {
   const [selectedStock, setSelectedStock] = useState<StockItem | null>(null);
 
   // 🚀 [신규] 출고 유형 상태 (기본값: 생산 투입)
-  // TX_TYPES.OUT_PROD.code가 'OUT_PROD'이므로 초기값으로 설정
   const [txCode, setTxCode] = useState<TxCode>('OUT_PROD');
 
   const [masterCandidates, setMasterCandidates] = useState<SearchCandidate[]>([]);
@@ -120,20 +120,23 @@ export default function OutboundPage() {
     setSelectedStock(stock);
     setOutQty(""); 
     setRemark(""); 
-    // 재고 선택 시 기본값으로 '생산 투입' 설정 (혹은 이전에 선택한 값 유지)
-    // setTxCode('OUT_PROD'); 
+    // 선택 시 기본값 유지
     setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 100);
   };
 
   // --- 3. 출고 실행 핸들러 (업데이트됨) ---
   const handleOutbound = async () => {
+    if (!user) { // ✨ 안전장치
+        await alert("로그인 세션이 만료되었습니다.", "error");
+        return;
+    }
     if (!selectedStock) return;
     const qty = Number(outQty);
     
     if (qty <= 0) return alert("출고 수량은 0보다 커야 합니다.", "error");
     if (qty > selectedStock.quantity) return alert(`출고 가능 수량을 초과했습니다.`, "error");
 
-    // 🚀 확인 메시지에 출고 유형 포함하여 명확하게 고지
+    // 🚀 확인 메시지에 출고 유형 포함
     const txLabel = TX_TYPES[txCode].label;
     const confirmMsg = `[${txLabel}]\n품목: ${selectedStock.item_master?.item_name}\n수량: ${qty.toLocaleString()}개\n\n출고하시겠습니까?`;
     
@@ -147,22 +150,27 @@ export default function OutboundPage() {
       if (newQty === 0) {
         await supabase.from('inventory').delete().eq('id', selectedStock.id);
       } else {
-        await supabase.from('inventory').update({ quantity: newQty, updated_at: new Date().toISOString() }).eq('id', selectedStock.id);
+        await supabase.from('inventory').update({ 
+            quantity: newQty, 
+            updated_at: new Date().toISOString(),
+            updated_by: user.id // ✨ 수정자 기록
+        }).eq('id', selectedStock.id);
       }
 
-      // 2. 수불 이력 생성 (🚀 tx_code 저장!)
+      // 2. 수불 이력 생성 (🚀 tx_code 및 created_by 저장!)
       await supabase.from('stock_tx').insert({
         transaction_type: 'OUTBOUND', 
         io_type: 'OUT',
-        tx_code: txCode,               // ✨ 핵심: 사용자가 선택한 유형 코드 저장
+        tx_code: txCode,               // ✨ 선택한 유형
         location_code: selectedStock.location_code, 
         item_key: selectedStock.item_key, 
         lot_no: selectedStock.lot_no,
         quantity: -qty, 
-        remark: remark || txLabel      // 비고 없으면 유형명이라도 남김
+        remark: remark || txLabel,
+        created_by: user.id            // ✨ 작업자 기록
       });
 
-      toast.success("출고 처리가 완료되었습니다.");
+      await toast.success("출고 처리가 완료되었습니다.");
       
       // 초기화
       setSelectedStock(null);
@@ -198,7 +206,7 @@ export default function OutboundPage() {
             )}
         </div>
 
-        {/* 검색 영역 (기존 유지) */}
+        {/* 검색 영역 */}
         {!selectedStock && (
             <div className="mb-6">
                 <div className="flex items-center bg-black border border-gray-700 rounded-xl p-4 focus-within:border-blue-500 transition-colors shadow-lg">
@@ -231,6 +239,7 @@ export default function OutboundPage() {
         {/* 출고 입력 폼 */}
         {selectedStock && (
             <div className="bg-gray-900 border border-red-900/30 rounded-xl p-6 shadow-2xl animate-fade-in-up">
+                
                 {/* 선택된 재고 정보 */}
                 <div className="mb-6 bg-black border border-gray-800 p-5 rounded-xl flex justify-between items-center">
                     <div>
@@ -248,11 +257,10 @@ export default function OutboundPage() {
 
                 <div className="space-y-6">
                     
-                    {/* 🚀 [신규 UI] 출고 유형 선택 (버튼형 칩) */}
+                    {/* 🚀 [신규 UI] 출고 유형 선택 */}
                     <div>
                         <label className="block text-sm text-gray-400 mb-3 font-bold">출고 유형 (Issue Type)</label>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                            {/* TX_TYPES 중 'OUT' 타입만 골라서 버튼 생성 */}
                             {getTxTypesByGroup('OUT').map((type) => (
                                 <button
                                     key={type.code}
@@ -263,7 +271,6 @@ export default function OutboundPage() {
                                             : "bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700 hover:text-gray-200"
                                     }`}
                                 >
-                                    {/* 선택된 항목에 체크 표시 */}
                                     {txCode === type.code && <Check size={14} className="absolute left-2 text-white/70" />}
                                     {type.label}
                                 </button>
@@ -289,7 +296,7 @@ export default function OutboundPage() {
                             type="text" value={remark} onChange={(e) => setRemark(e.target.value)}
                             className="w-full bg-black border border-gray-700 rounded-xl p-3 text-white outline-none focus:border-gray-500 placeholder:text-gray-600"
                             placeholder="특이사항이 있을 경우에만 입력하세요."
-                         />
+                          />
                     </div>
 
                     <div className="flex gap-3 mt-4">

@@ -5,17 +5,16 @@ import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { ArrowLeft, Search, X, Plus, Check } from "lucide-react"; 
 import { Item } from "@/types";
-// 🚀 상수 Import
 import { TX_TYPES, TxCode, getTxTypesByGroup } from '@/constants/transaction'; 
+import { useAuth } from "@/context/AuthProvider"; // ✨ [추가] 인증 훅
 
 export default function NewInboundPage() {
   const router = useRouter();
   const supabase = createClient();
+  const { user } = useAuth(); // ✨ [추가] 유저 정보 가져오기
   
   // --- 1. 상태 관리 ---
-  // 🚀 기본값: 구매 입고 (IN_PURCHASE)로 변경
   const [inboundType, setInboundType] = useState<TxCode>("IN_PURCHASE");
-  
   const [supplier, setSupplier] = useState("");
   const [planDate, setPlanDate] = useState(new Date().toISOString().split('T')[0]);
   const [remark, setRemark] = useState("");
@@ -32,28 +31,19 @@ export default function NewInboundPage() {
       if (data) setAllItems(data as Item[]);
     };
     fetchItems();
-  }, []);
+  }, [supabase]);
 
-  // --- 2. 입고 유형 변경 시 공급처 자동 세팅 (TX_TYPES 기반) ---
+  // 입고 유형 변경 시 공급처 자동 세팅
   useEffect(() => {
     switch (inboundType) {
-        case 'IN_PROD':
-            setSupplier('내부 생산라인');
-            break;
-        case 'IN_RETURN':
-            setSupplier('반품(고객사)');
-            break;
-        case 'IN_ETC':
-            setSupplier('기타');
-            break;
-        case 'IN_PURCHASE':
-        default:
-            setSupplier(''); // 직접 입력 유도
-            break;
+        case 'IN_PROD': setSupplier('내부 생산라인'); break;
+        case 'IN_RETURN': setSupplier('반품(고객사)'); break;
+        case 'IN_ETC': setSupplier('기타'); break;
+        case 'IN_PURCHASE': default: setSupplier(''); break;
     }
   }, [inboundType]);
 
-  // 검색 및 아이템 추가 로직 (기존 유지 - 생략 가능하나 전체 코드 제공)
+  // 검색 및 아이템 추가 로직
   const normalize = (text: string) => text.replace(/\s+/g, "").toLowerCase();
   const filteredItems = searchTerm ? allItems.filter(item => {
     const search = normalize(searchTerm);
@@ -80,6 +70,7 @@ export default function NewInboundPage() {
 
   // --- 3. 저장 핸들러 ---
   const handleSave = async () => {
+    if (!user) return alert("로그인 정보가 없습니다."); // ✨ 안전장치
     if (!supplier) return alert("공급처 정보가 필요합니다.");
     if (selectedItems.length === 0) return alert("최소 1개 이상의 품목을 추가해주세요.");
     if (selectedItems.some(i => i.qty <= 0)) return alert("수량이 0인 품목이 있습니다.");
@@ -88,18 +79,18 @@ export default function NewInboundPage() {
     try {
       const inboundNo = `IB-${planDate.replace(/-/g, '').slice(2)}-${Math.floor(1000 + Math.random() * 9000)}`;
       
-      // 🚀 마스터 저장 (inbound_type 추가)
+      // 🚀 created_by 추가
       const { error: masterError } = await supabase.from("inbound_master").insert({
         inbound_no: inboundNo,
-        inbound_type: inboundType, // ✨ 핵심: 유형 저장
+        inbound_type: inboundType,
         supplier_name: supplier,
         plan_date: planDate,
         remark: remark,
-        status: "PENDING"
+        status: "PENDING",
+        created_by: user.id // ✨ 누가 계획했는지 기록
       });
       if (masterError) throw masterError;
 
-      // 상세 저장
       const details = selectedItems.map(si => ({
         inbound_no: inboundNo,
         item_key: si.item.item_key,
@@ -125,7 +116,6 @@ export default function NewInboundPage() {
 
   return (
     <div className="p-8 bg-black min-h-screen text-white font-[family-name:var(--font-geist-sans)]">
-      {/* 헤더 */}
       <div className="flex items-center gap-4 mb-8 border-b border-gray-800 pb-4">
         <button onClick={() => router.back()} className="text-gray-400 hover:text-white"><ArrowLeft /></button>
         <h1 className="text-2xl font-bold">📝 입고 예정 등록 (Plan)</h1>
@@ -133,12 +123,8 @@ export default function NewInboundPage() {
 
       <div className="flex flex-col lg:flex-row gap-8">
         <div className="w-full lg:w-1/3 space-y-6">
-            
-            {/* 1. 기본 정보 */}
             <div className="bg-gray-900 border border-gray-800 p-6 rounded-lg">
                 <h2 className="text-lg font-bold text-blue-400 mb-4">1. 입고 유형 선택</h2>
-                
-                {/* 🚀 TX_TYPES 기반 동적 버튼 생성 */}
                 <div className="grid grid-cols-2 gap-2 mb-4">
                     {getTxTypesByGroup('IN').map((type) => (
                         <button
@@ -155,7 +141,6 @@ export default function NewInboundPage() {
                         </button>
                     ))}
                 </div>
-
                 <div className="space-y-4">
                     <div>
                         <label className="block text-sm text-gray-400 mb-1">공급처</label>
@@ -164,7 +149,6 @@ export default function NewInboundPage() {
                             className={`w-full bg-black border border-gray-700 rounded px-3 py-2 outline-none focus:border-blue-500 ${inboundType !== 'IN_PURCHASE' ? 'text-gray-500' : 'text-white'}`}
                             value={supplier}
                             onChange={(e) => setSupplier(e.target.value)}
-                            // IN_PURCHASE(구매) 일 때만 수정 가능하도록 설정
                             readOnly={inboundType !== 'IN_PURCHASE'} 
                             placeholder="공급처 입력"
                         />
@@ -180,7 +164,6 @@ export default function NewInboundPage() {
                 </div>
             </div>
 
-            {/* 2. 품목 검색 (기존과 동일) */}
             <div className="bg-gray-900 border border-gray-800 p-6 rounded-lg">
                 <h2 className="text-lg font-bold text-blue-400 mb-4">2. 품목 추가</h2>
                 <div className="relative">
@@ -211,7 +194,6 @@ export default function NewInboundPage() {
             </div>
         </div>
 
-        {/* 우측: 리스트 (기존과 동일) */}
         <div className="w-full lg:w-2/3 flex flex-col h-full">
             <div className="bg-gray-900 border border-gray-800 rounded-lg flex-1 flex flex-col overflow-hidden">
                 <div className="p-4 border-b border-gray-800 bg-gray-800/50">

@@ -5,13 +5,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import { ArrowLeft, ArrowRight, MapPin, Search, CheckCircle } from "lucide-react";
 import LocationSelectorModal from "@/components/LocationSelectorModal";
-// 🚀 상수 Import
 import { TX_TYPES, TxCode } from "@/constants/transaction";
+import { useAuth } from "@/context/AuthProvider"; // ✨ [추가] 인증 훅
 
 export default function InventoryMovePage() {
   const router = useRouter();
   const supabase = createClient();
   const searchParams = useSearchParams();
+  const { user } = useAuth(); // ✨ [추가] 유저 정보
 
   // URL 파라미터 (Source 정보)
   const sourceId = searchParams.get("id"); 
@@ -28,7 +29,7 @@ export default function InventoryMovePage() {
   const [showLocModal, setShowLocModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
 
-  // 🚀 이동 유형 (현재는 '랙 이동' 하나지만, 나중에 '상태 변경' 등이 추가될 수 있음)
+  // 이동 유형 (랙 이동)
   const moveType: TxCode = "MV_LOC"; 
 
   // 품목명 조회
@@ -41,6 +42,7 @@ export default function InventoryMovePage() {
 
   // 이동 실행 핸들러
   const handleMove = async () => {
+    if (!user) return alert("로그인 정보가 없습니다."); // ✨ 안전장치
     if (!targetLoc) return alert("이동할 위치를 선택해주세요.");
     
     const finalTargetLoc = targetLoc.toUpperCase();
@@ -61,7 +63,8 @@ export default function InventoryMovePage() {
         } else {
             sourceQuery = supabase.from("inventory").update({ 
                 quantity: remainingQty, 
-                updated_at: new Date().toISOString() 
+                updated_at: new Date().toISOString(),
+                updated_by: user.id // ✨ 수정자 기록
             });
         }
         
@@ -84,7 +87,8 @@ export default function InventoryMovePage() {
         if (targetInv) {
             await supabase.from("inventory").update({
                 quantity: targetInv.quantity + qty,
-                updated_at: new Date().toISOString()
+                updated_at: new Date().toISOString(),
+                updated_by: user.id // ✨ 수정자 기록
             }).eq("id", targetInv.id);
         } else {
             // 위치 유효성 체크
@@ -96,32 +100,34 @@ export default function InventoryMovePage() {
                 item_key: itemKey,
                 lot_no: lotNo,
                 quantity: qty,
-                status: 'AVAILABLE'
+                status: 'AVAILABLE',
+                updated_by: user.id // ✨ 생성자 기록 (inventory엔 created_by가 없으므로 updated_by 활용)
             });
         }
 
-        // 3. 수불 이력 (🚀 표준화 적용)
-        // 이동은 [출고]와 [입고]가 동시에 일어나는 행위이므로, tx_code는 동일하게 'MV_LOC'를 씁니다.
+        // 3. 수불 이력
         const historyData = [
             {
                 transaction_type: 'MOVE',
                 io_type: 'OUT',
-                tx_code: moveType, // ✨ MV_LOC
+                tx_code: moveType,
                 location_code: sourceLoc,
                 item_key: itemKey,
                 lot_no: lotNo,
                 quantity: -qty,
-                remark: `이동출고 (To: ${finalTargetLoc})`
+                remark: `이동출고 (To: ${finalTargetLoc})`,
+                created_by: user.id // ✨ 작업자 기록
             },
             {
                 transaction_type: 'MOVE',
                 io_type: 'IN',
-                tx_code: moveType, // ✨ MV_LOC
+                tx_code: moveType,
                 location_code: finalTargetLoc,
                 item_key: itemKey,
                 lot_no: lotNo,
                 quantity: qty,
-                remark: `이동입고 (From: ${sourceLoc})`
+                remark: `이동입고 (From: ${sourceLoc})`,
+                created_by: user.id // ✨ 작업자 기록
             }
         ];
 
@@ -151,7 +157,6 @@ export default function InventoryMovePage() {
         <button onClick={() => router.back()} className="text-gray-400 hover:text-white"><ArrowLeft /></button>
         <div>
             <h1 className="text-2xl font-bold text-blue-500">📦 재고 이동 (Stock Move)</h1>
-            {/* 🚀 이동 유형 표시 */}
             <span className="text-xs bg-yellow-900/30 text-yellow-500 border border-yellow-800 px-2 py-0.5 rounded mt-1 inline-block font-bold">
                 {TX_TYPES[moveType].label}
             </span>
@@ -159,7 +164,7 @@ export default function InventoryMovePage() {
       </div>
 
       <div className="max-w-4xl mx-auto flex flex-col md:flex-row gap-8 items-start">
-        {/* Source Card (기존 동일) */}
+        {/* Source Card */}
         <div className="flex-1 w-full bg-gray-900 border border-gray-800 rounded-xl p-6 opacity-80">
             <h2 className="text-lg font-bold text-gray-400 mb-4 flex items-center gap-2">📤 보내는 곳 (From)</h2>
             <div className="space-y-4">
@@ -187,7 +192,7 @@ export default function InventoryMovePage() {
 
         <div className="hidden md:flex self-center text-gray-600"><ArrowRight size={40} /></div>
 
-        {/* Target Card (기존 동일) */}
+        {/* Target Card */}
         <div className="flex-1 w-full bg-gray-900 border border-blue-900/30 rounded-xl p-6 shadow-xl shadow-blue-900/10">
             <h2 className="text-lg font-bold text-blue-400 mb-4 flex items-center gap-2">📥 받는 곳 (To)</h2>
             <div className="space-y-6">

@@ -1,12 +1,12 @@
 "use client";
 
 import { createClient } from "@/utils/supabase/client";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Map, Layers } from "lucide-react"; // ✨ Layers 아이콘 추가
+import { Map } from "lucide-react"; 
 import RackDetailModal, { LocationData } from "@/components/RackDetailModal";
-import { getAllLocations } from "@/utils/wms"; // ✨ [유틸] 데이터 조회
-import { useUI } from "@/context/UIProvider";  // ✨ [유틸] 알림 시스템
+import { getAllLocations } from "@/utils/wms"; 
+import { useUI } from "@/context/UIProvider"; 
 
 interface RackStats {
   rackName: string;
@@ -16,13 +16,21 @@ interface RackStats {
 }
 
 // ==================================================================================
-// 1. 메인 페이지 컴포넌트
+// 1. 메인 페이지 컴포넌트 (Suspense 적용)
 // ==================================================================================
 export default function LocationPage() {
+  return (
+    <Suspense fallback={<div className="h-screen flex items-center justify-center text-white">로딩 중...</div>}>
+      <LocationContent />
+    </Suspense>
+  );
+}
+
+function LocationContent() {
   const supabase = createClient();
   const searchParams = useSearchParams();
   const initialZoneParam = searchParams.get("zone");
-  const { toast } = useUI(); // ✨ 글로벌 토스트 사용
+  const { toast } = useUI(); 
 
   const [locations, setLocations] = useState<LocationData[]>([]);
   const [occupiedLocs, setOccupiedLocs] = useState<Set<string>>(new Set());
@@ -37,30 +45,30 @@ export default function LocationPage() {
     const fetchData = async () => {
       setLoading(true);
       try {
-        // 🚀 [리팩토링] 복잡한 while 루프 삭제 -> 유틸 함수 한 줄로 해결!
-        // getAllLocations 내부에서 1,000개 제한 처리와 Zone 파싱 로직이 모두 수행됩니다.
         const allData = await getAllLocations(supabase); 
         
         console.log(`✅ 총 ${allData.length}개의 로케이션 데이터를 로드했습니다.`); 
         
         if (allData.length > 0) {
-          setLocations(allData as LocationData[]);
+          // any 타입 제거 및 LocationData로 단언
+          const typedData = allData as LocationData[];
+          setLocations(typedData);
 
           // 재고가 있는 로케이션 ID 추출
           const occupied = new Set(
-            allData
-              .filter((l: any) => l.inventory && l.inventory.length > 0 && l.inventory[0].quantity > 0)
-              .map((l: any) => l.loc_id)
+            typedData
+              .filter(l => l.inventory && l.inventory.length > 0 && l.inventory[0].quantity > 0)
+              .map(l => l.loc_id)
           );
           setOccupiedLocs(occupied);
 
           // 초기 파라미터 처리 (예: ?zone=L)
-          if (initialZoneParam === '2F') setActiveZone('2F');
-          else if (initialZoneParam) {
+          if (initialZoneParam === '2F') {
+              setActiveZone('2F');
+          } else if (initialZoneParam) {
              // 2F가 아닌 다른 Zone(예: A)이 들어오면 생산팀 뷰로 전환하고 해당 랙 모달 오픈
              setActiveZone('M');
-             // 해당 Zone이 실제 존재하는지 확인 후 모달 열기
-             const exists = allData.some((l:any) => l.zone === initialZoneParam);
+             const exists = typedData.some(l => l.zone === initialZoneParam);
              if (exists) setSelectedRackM(initialZoneParam);
           }
         }
@@ -73,14 +81,19 @@ export default function LocationPage() {
     };
 
     fetchData();
-  }, [initialZoneParam, toast]); 
+  }, [initialZoneParam, toast, supabase]); 
 
   const getRackStats = (rackName: string): RackStats => {
-    // 유틸에서 이미 zone 데이터 보정이 완료되었으므로 안전하게 필터링 가능
+    // 2F 로직: Zone은 '2F', Rack 번호로 구분
     const rackLocs = locations.filter(l => l.zone === '2F' && l.rack_no === rackName);
     const total = rackLocs.length;
     const used = rackLocs.filter(l => occupiedLocs.has(l.loc_id)).length;
-    return { rackName, totalCells: total, usedCells: used, occupancyRate: total === 0 ? 0 : Math.round((used / total) * 100) };
+    return { 
+        rackName, 
+        totalCells: total, 
+        usedCells: used, 
+        occupancyRate: total === 0 ? 0 : Math.round((used / total) * 100) 
+    };
   };
 
   if (loading) return (
@@ -136,9 +149,21 @@ export default function LocationPage() {
                         if (stats.totalCells === 0) return null; 
                         return <RackOverviewCard key={rack} stats={stats} onClick={() => setSelectedRack2F(rack)} />;
                     })}
+                    {/* 데이터가 아예 없을 때 안내 메시지 */}
+                    {locations.filter(l => l.zone === '2F').length === 0 && (
+                        <div className="col-span-full text-center py-20 text-gray-500 border border-gray-800 rounded-xl">
+                            2F 구역에 등록된 로케이션 데이터가 없습니다.
+                        </div>
+                    )}
                 </div>
             </div>
-            {selectedRack2F && <RackDetailModal rackName={selectedRack2F} locations={locations.filter(l => l.zone === '2F' && l.rack_no === selectedRack2F)} onClose={() => setSelectedRack2F(null)} />}
+            {selectedRack2F && (
+                <RackDetailModal 
+                    rackName={selectedRack2F} 
+                    locations={locations.filter(l => l.zone === '2F' && l.rack_no === selectedRack2F)} 
+                    onClose={() => setSelectedRack2F(null)} 
+                />
+            )}
         </div>
       ) : (
         <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-4 md:p-10 min-h-[600px] md:min-h-[800px] flex items-center justify-center relative overflow-hidden animate-fade-in group">
@@ -160,25 +185,22 @@ export default function LocationPage() {
 }
 
 // ==================================================================================
-// 2. 맵 뷰 (Visualizer) - [리팩토링] useUI() 적용
+// 2. 맵 뷰 (Visualizer)
 // ==================================================================================
-// app/location/page.tsx 의 ZoneViewM 컴포넌트
 
 function ZoneViewM({ locations, onRackClick }: { locations: LocationData[], onRackClick: (id: string) => void }) {
     const { toast } = useUI(); 
 
-    // 활성 랙 판단
+    // 활성 랙 판단 (2F가 아닌 모든 Zone을 생산팀 랙으로 간주)
     const activeRacks = useMemo(() => new Set(locations.filter(l => l.zone !== '2F').map(l => l.zone)), [locations]);
 
-    // 🚀 [추가] 랙별 적재율 계산 로직
+    // 랙별 적재율 계산 로직
     const getRackStats = (rackId: string) => {
         const rackLocs = locations.filter(l => l.zone === rackId);
         const total = rackLocs.length;
         
-        // 데이터가 없으면 0 리턴
         if (total === 0) return { total: 0, used: 0, percent: 0 };
 
-        // 재고가 있는(quantity > 0) 셀 개수 카운트
         const used = rackLocs.filter(l => l.inventory && l.inventory.length > 0 && l.inventory[0].quantity > 0).length;
         
         return { 
@@ -198,19 +220,16 @@ function ZoneViewM({ locations, onRackClick }: { locations: LocationData[], onRa
 
     const renderRack = (id: string, className: string = "") => {
         const isActive = activeRacks.has(id);
-        const hasStock = locations.some(l => l.zone === id && l.inventory && l.inventory.length > 0);
+        const hasStock = locations.some(l => l.zone === id && l.inventory && l.inventory.length > 0 && l.inventory[0].quantity > 0);
         
-        // 통계 가져오기
         const stats = getRackStats(id);
         
-        // 적재율에 따른 텍스트 색상 (선택 사항 - 너무 알록달록하면 제거 가능)
         const percentColor = stats.percent > 80 ? "text-red-400" : (stats.percent > 50 ? "text-yellow-400" : "text-gray-400");
 
         return (
             <div 
                 onClick={() => handleRackClick(id)}
                 className={`
-                    /* flex-col을 적용하여 ID와 %를 세로로 배치 */
                     flex flex-col items-center justify-center 
                     rounded-md shadow-lg border-2 transition-all cursor-pointer select-none relative
                     ${isActive 
@@ -224,14 +243,14 @@ function ZoneViewM({ locations, onRackClick }: { locations: LocationData[], onRa
                 {/* 1. 랙 ID */}
                 <span className="font-bold leading-none">{id}</span>
                 
-                {/* 2. 적재율 % (활성 상태이고 데이터가 있을 때만 표시) */}
+                {/* 2. 적재율 % */}
                 {isActive && stats.total > 0 && (
                     <span className={`text-[10px] md:text-xs font-mono mt-1 ${percentColor} opacity-80`}>
                         {stats.percent}%
                     </span>
                 )}
 
-                {/* 3. 재고 있음 표시 (Ping 애니메이션) - 우측 상단 점 */}
+                {/* 3. 재고 있음 표시 (Ping 애니메이션) */}
                 {isActive && hasStock && (
                     <span className="absolute -top-1 -right-1 flex h-3 w-3">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
@@ -243,7 +262,6 @@ function ZoneViewM({ locations, onRackClick }: { locations: LocationData[], onRa
     };
 
     return (
-        // 기존 레이아웃 구조 완벽 유지
         <div className="w-full max-w-[95rem] relative z-10 my-4 scale-[0.6] md:scale-90 lg:scale-100 transition-transform origin-center flex flex-col items-center xl:block">
             
             {/* 범례 */}
