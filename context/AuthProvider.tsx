@@ -1,10 +1,11 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
+import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { createClient } from "@/utils/supabase/client";
 import { User } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 
+// --- 1. 타입 정의 ---
 export interface UserProfile {
   id: string;
   email: string;
@@ -14,11 +15,21 @@ export interface UserProfile {
   status: 'ACTIVE' | 'RETIRED';
 }
 
+export interface RolePermission {
+  id: number;
+  role: 'ADMIN' | 'MANAGER' | 'WORKER' | 'GUEST';
+  feature_key: string;
+  feature_name: string;
+  is_enabled: boolean;
+}
+
 interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
+  permissions: RolePermission[]; // 🚀 추가된 권한 목록
   loading: boolean;
   signOut: () => Promise<void>;
+  checkPermission: (featureKey: string) => boolean; // 🚀 권한 체크 헬퍼 함수
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -29,26 +40,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [permissions, setPermissions] = useState<RolePermission[]>([]); // 🚀 권한 상태
   const [loading, setLoading] = useState(true);
 
-  // 1. 로그아웃: 즉시 UI 파괴 및 이동
+  // 🚪 로그아웃 로직
   const signOut = useCallback(async () => {
-    // UI 상태 초기화
     setUser(null);
     setProfile(null);
+    setPermissions([]); // 권한 초기화
     setLoading(false);
     
-    // 페이지 이동 우선
     router.replace('/login');
 
     try {
       await supabase.auth.signOut();
     } catch (err) {
-      // 로그아웃 에러는 무시 (이미 화면은 이동했으므로)
+      // 무시
     }
   }, [supabase, router]);
 
-  // 2. 프로필 가져오기: 로딩 상태 제어 분리
+  // 📡 권한 목록 가져오기 (내 Role에 맞는 것만)
+  const fetchPermissions = useCallback(async (role: string) => {
+    try {
+      // 내 Role에 해당하는 권한 설정만 가져옵니다.
+      const { data, error } = await supabase
+        .from('role_permissions')
+        .select('*')
+        .eq('role', role);
+
+      if (!error && data) {
+        setPermissions(data as RolePermission[]);
+      }
+    } catch (err) {
+      console.error("권한 로딩 실패:", err);
+    }
+  }, [supabase]);
+
+  // 📡 프로필 가져오기 (성공 시 권한도 로딩)
   const fetchProfile = useCallback(async (userId: string) => {
     try {
       const { data, error } = await supabase
@@ -60,17 +88,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (error) throw error;
       
       if (data) {
-        setProfile(data as UserProfile);
+        const userProfile = data as UserProfile;
+        setProfile(userProfile);
+        
+        // 🚀 프로필 로딩 성공 후, 해당 Role의 권한 목록을 가져옵니다.
+        if (userProfile.role) {
+          await fetchPermissions(userProfile.role);
+        }
       }
     } catch (error) {
-      console.error("프로필 갱신 실패 (세션은 유지):", error);
-      // 여기서 signOut을 하지 않습니다. 
-      // 일시적 DB 오류일 수 있으므로 기존 프로필이나 세션을 유지하는 게 UX상 낫습니다.
+      console.error("프로필 갱신 실패:", error);
     } finally {
-      // 성공하든 실패하든 로딩은 무조건 끈다.
       setLoading(false);
     }
-  }, [supabase]);
+  }, [supabase, fetchPermissions]);
+
+  // 🛡️ 권한 체크 헬퍼 함수
+  const checkPermission = useCallback((featureKey: string) => {
+    // 1. 관리자는 무조건 프리패스 (안전장치)
+    if (profile?.role === 'ADMIN') return true;
+
+    // 2. 권한 목록에서 해당 기능 찾기
+    const perm = permissions.find(p => p.feature_key === featureKey);
+    
+    // 3. 설정값이 있으면 그 값(is_enabled)을 따르고, 없으면 기본적으로 false(차단)
+    return perm ? perm.is_enabled : false;
+  }, [profile, permissions]);
 
   useEffect(() => {
     let mounted = true;
@@ -91,43 +134,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     initializeAuth();
 
-    // 🚀 [핵심 수정] 과민 반응 방지 로직
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
       
-      // 1. 로그아웃 이벤트는 즉시 처리
       if (event === 'SIGNED_OUT') {
         setUser(null);
         setProfile(null);
+        setPermissions([]);
         setLoading(false);
         router.replace('/login');
         return;
       }
 
-      // 2. 토큰 갱신이나 로그인 이벤트 발생 시
       if (session?.user) {
-        // 🛡️ 이미 로그인된 유저가 그대로라면 로딩 화면을 띄우지 마세요! (조용히 넘어가기)
-        // (현재 user state가 있고, 그 ID가 들어온 세션 ID와 같다면 무시)
         setUser((prevUser) => {
-            if (prevUser?.id === session.user.id) {
-                return prevUser; // 상태 변경 없음 -> 리렌더링 방지
-            }
+            if (prevUser?.id === session.user.id) return prevUser;
             return session.user;
         });
 
-        // 프로필이 이미 있다면 굳이 로딩창 띄우고 다시 가져오지 않음
+        // 세션 갱신 시 프로필이 없으면 다시 로드
         setProfile((prevProfile) => {
             if (prevProfile) return prevProfile;
-            
-            // 프로필이 없을 때만 가져오기 (이때만 로딩 필요할 수도 있음)
-            // 하지만 UX를 위해 여기서는 백그라운드에서 가져오고 로딩바는 안 띄우는 게 나음
             fetchProfile(session.user.id);
             return null;
         });
-        
-        // 🚨 중요: 여기서 setLoading(true)를 호출하지 않습니다!
-        // 초기화(initializeAuth) 단계에서만 로딩을 보여주고, 
-        // 중간에 세션이 갱신될 때는 로딩바 없이 조용히 처리합니다.
       }
     });
 
@@ -138,7 +168,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [supabase, fetchProfile, router]);
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signOut }}>
+    <AuthContext.Provider value={{ user, profile, permissions, loading, signOut, checkPermission }}>
       {children}
     </AuthContext.Provider>
   );

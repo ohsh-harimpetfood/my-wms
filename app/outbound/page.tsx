@@ -65,43 +65,115 @@ export default function OutboundPage() {
     loadMasterData();
   }, [supabase]);
 
-  // --- 1. 스마트 검색 로직 (기존 동일) ---
+  // --- 1. 스마트 검색 로직 (성능 최적화 & 청크 분할 조회) ---
   const executeSearch = useCallback(async (term: string) => {
     setIsSearching(true);
     setSearchResults([]);
     setSelectedStock(null);
 
     try {
-      const cleanTerm = term.replace(/\s+/g, "").toLowerCase(); 
-      const originalTerm = term.trim();
-
+      const cleanTerm = term.trim();
       if (!cleanTerm) {
         setIsSearching(false);
         return;
       }
 
-      const matchedKeys = masterCandidates
-        .filter(candidate => candidate.normalizedName.includes(cleanTerm))
+      // 검색어 분리 (예: "슬림 70" -> ["슬림", "70"])
+      const terms = cleanTerm.toLowerCase().split(/\s+/).filter(Boolean);
+
+      // ---------------------------------------------------------
+      // Step 1. [정밀 타격] 마스터 데이터에서 '모든 단어'를 포함하는 품목 키 추출
+      // ---------------------------------------------------------
+      // 기존에는 '하나라도(OR)' 맞으면 다 가져왔지만, 이제는 '모두(AND)' 맞는 것만 가져옵니다.
+      // 이렇게 하면 "슬림 70" 검색 시 불필요한 "볼펜 70" 같은 건 제외되어 조회 대상이 획기적으로 줄어듭니다.
+      const targetItemKeys = masterCandidates
+        .filter(c => {
+            const name = c.item_name.toLowerCase();
+            const code = c.item_key.toLowerCase();
+            // 검색어의 모든 단어가 이름이나 코드에 포함되어야 함 (AND 조건)
+            return terms.every(t => name.includes(t) || code.includes(t));
+        })
         .map(c => c.item_key);
 
-      let inventoryQuery = supabase.from('inventory').select(`
-          id, location_code, item_key, lot_no, quantity,
-          item_master ( item_name, uom )
-        `);
+      // ---------------------------------------------------------
+      // Step 2. [병렬 조회] 1) 품목기반 조회 + 2) 위치/LOT기반 조회
+      // ---------------------------------------------------------
+      const promises = [];
 
-      const orConditions = [];
-      if (matchedKeys.length > 0) orConditions.push(`item_key.in.(${matchedKeys.slice(0, 50).join(',')})`);
-      orConditions.push(`location_code.ilike.%${originalTerm}%`);
-      orConditions.push(`lot_no.ilike.%${originalTerm}%`);
-      orConditions.push(`item_key.ilike.%${originalTerm}%`);
-      if (cleanTerm.length > 2) orConditions.push(`location_code.ilike.%${cleanTerm}%`);
+      // A. [품목명 검색] URL 길이 제한 방지를 위해 30개씩 끊어서 조회 (Chunking)
+      const CHUNK_SIZE = 30;
+      for (let i = 0; i < targetItemKeys.length; i += CHUNK_SIZE) {
+          const chunk = targetItemKeys.slice(i, i + CHUNK_SIZE);
+          
+          const itemQuery = supabase
+              .from('inventory')
+              .select(`
+                  id, location_code, item_key, lot_no, quantity,
+                  item_master!inner ( item_name, uom )
+              `)
+              .in('item_key', chunk); // 정확히 매칭된 키들만 조회
+          
+          promises.push(itemQuery);
+      }
 
-      const { data, error } = await inventoryQuery.or(orConditions.join(',')).limit(30);
+      // B. [일반 검색] 위치(Location)나 LOT번호 검색 (이건 텍스트 OR 검색)
+      // "A-01"을 검색했을 때 품목명엔 없어도 위치에는 있을 수 있으므로 별도 수행
+      const textConditions: string[] = [];
+      terms.forEach(t => {
+          textConditions.push(`location_code.ilike.%${t}%`);
+          textConditions.push(`lot_no.ilike.%${t}%`);
+          // item_key ilike는 위(A)에서 처리했으므로 생략 가능하나, 부분일치 보완을 위해 둠
+          textConditions.push(`item_key.ilike.%${t}%`);
+      });
 
-      if (error) throw error;
-      setSearchResults(data as any[] || []);
+      if (textConditions.length > 0) {
+          const metaQuery = supabase
+              .from('inventory')
+              .select(`
+                  id, location_code, item_key, lot_no, quantity,
+                  item_master!inner ( item_name, uom )
+              `)
+              .or(textConditions.join(',')) // 검색어 중 하나라도 포함된 위치/LOT
+              .limit(50); // 너무 많이 가져오지 않도록 제한
+          
+          promises.push(metaQuery);
+      }
+
+      // ---------------------------------------------------------
+      // Step 3. [결과 병합] 모든 쿼리 결과 합치기
+      // ---------------------------------------------------------
+      const responses = await Promise.all(promises);
+      
+      let allRows: any[] = [];
+      responses.forEach(res => {
+          if (res.data) allRows = [...allRows, ...res.data];
+          if (res.error) console.error(res.error); // 에러 로그만 남기고 진행
+      });
+
+      // ---------------------------------------------------------
+      // Step 4. [최종 정제] 중복 제거 및 최종 AND 필터링
+      // ---------------------------------------------------------
+      // 중복 제거 (ID 기준)
+      const uniqueRows = Array.from(new Map(allRows.map(item => [item['id'], item])).values());
+
+      // 최종적으로 사용자가 입력한 검색어가 모두 포함된 결과만 남김
+      const finalResults = uniqueRows.filter(stock => {
+          const targetStr = `
+            ${stock.location_code} 
+            ${stock.item_key} 
+            ${stock.item_master?.item_name || ''} 
+            ${stock.lot_no}
+          `.toLowerCase();
+
+          // 검색어의 모든 단어가 결과 문자열 어딘가에 있어야 함
+          return terms.every(t => targetStr.includes(t));
+      });
+
+      setSearchResults(finalResults);
+
     } catch (err) {
       console.error(err);
+      toast.error("검색 중 치명적인 오류가 발생했습니다.");
     } finally {
       setIsSearching(false);
     }

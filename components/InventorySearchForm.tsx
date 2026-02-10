@@ -74,18 +74,18 @@ export default function InventorySearchForm({ zones, items }: Props) {
   };
 
   return (
-    <div className="max-w-4xl mx-auto mt-10 p-6 bg-gray-900 border border-gray-800 rounded-xl shadow-2xl animate-fade-in">
-      <div className="flex items-center gap-3 mb-8 border-b border-gray-800 pb-4">
-        <div className="w-12 h-12 bg-blue-900/30 rounded-lg flex items-center justify-center">
+    <div className="max-w-4xl mx-auto mt-4 md:mt-10 p-4 md:p-6 bg-gray-900 border border-gray-800 rounded-xl shadow-2xl animate-fade-in pb-24">
+      <div className="flex items-center gap-3 mb-6 md:mb-8 border-b border-gray-800 pb-4">
+        <div className="w-10 h-10 md:w-12 md:h-12 bg-blue-900/30 rounded-lg flex items-center justify-center shrink-0">
           <Layers className="text-blue-500" size={24} />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-white">재고 현황 조회</h1>
-          <p className="text-gray-400 text-sm">팀을 선택하고 랙을 지정하거나, 검색어를 입력하세요.</p>
+          <h1 className="text-xl md:text-2xl font-bold text-white">재고 현황 조회</h1>
+          <p className="text-gray-400 text-xs md:text-sm">팀을 선택하고 랙을 지정하거나, 검색어를 입력하세요.</p>
         </div>
       </div>
 
-      <div className="space-y-8">
+      <div className="space-y-6 md:space-y-8">
         
         {/* 보관 위치 선택 */}
         <div>
@@ -93,52 +93,57 @@ export default function InventorySearchForm({ zones, items }: Props) {
             <MapPin size={16} /> 보관 위치 (Storage Location)
           </label>
 
-          {/* 1. 상단 탭 버튼 */}
-          <div className="flex bg-gray-950 p-1 rounded-lg mb-4 w-fit border border-gray-800">
+          {/* 1. 상단 탭 버튼 (모바일 가독성 개선) */}
+          <div className="grid grid-cols-3 gap-1 md:gap-2 bg-gray-950 p-1 rounded-lg mb-4 border border-gray-800">
             <button
               onClick={() => handleTabChange("PRODUCTION")}
-              className={`px-5 py-2.5 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${
+              className={`py-2 md:py-2.5 rounded-md text-[11px] md:text-sm font-bold transition-all flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 ${
                 activeTab === "PRODUCTION" ? "bg-purple-900/50 text-purple-400 shadow ring-1 ring-purple-500/50" : "text-gray-500 hover:text-gray-300"
               }`}
             >
-              <Factory size={16}/> 생산팀 (랙 A~S)
+              <Factory size={16} className="mb-0.5 md:mb-0"/>
+              <span className="whitespace-nowrap">생산팀</span>
+              <span className="hidden md:inline opacity-70 text-[10px] md:text-xs">(랙 A~S)</span>
             </button>
             <button
               onClick={() => handleTabChange("LOGISTICS")}
-              className={`px-5 py-2.5 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${
+              className={`py-2 md:py-2.5 rounded-md text-[11px] md:text-sm font-bold transition-all flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 ${
                 activeTab === "LOGISTICS" ? "bg-blue-900/50 text-blue-400 shadow ring-1 ring-blue-500/50" : "text-gray-500 hover:text-gray-300"
               }`}
             >
-              <Truck size={16}/> 물류팀 (창고 2F)
+              <Truck size={16} className="mb-0.5 md:mb-0"/>
+              <span className="whitespace-nowrap">물류팀</span>
+              <span className="hidden md:inline opacity-70 text-[10px] md:text-xs">(창고 2F)</span>
             </button>
              <button
               onClick={() => handleTabChange("ALL")}
-              className={`px-5 py-2.5 rounded-md text-sm font-bold transition-all flex items-center gap-2 ${
+              className={`py-2 md:py-2.5 rounded-md text-[11px] md:text-sm font-bold transition-all flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 ${
                 activeTab === "ALL" ? "bg-gray-800 text-white shadow ring-1 ring-gray-600" : "text-gray-500 hover:text-gray-300"
               }`}
             >
-              <Layers size={16}/> 전체 보기
+              <Layers size={16} className="mb-0.5 md:mb-0"/>
+              <span className="whitespace-nowrap">전체 보기</span>
             </button>
           </div>
 
           {/* 2. 하위 랙/구역 선택 버튼 */}
-          <div className="bg-gray-950/50 p-4 rounded-lg border border-gray-800/50 min-h-[80px] flex items-center">
-             
-             {/* A. 생산팀 랙 리스트 */}
-             {activeTab === "PRODUCTION" && (
-               <div className="w-full">
-                 <div className="text-xs text-purple-300 mb-3 font-bold flex items-center justify-between bg-purple-900/20 p-2 rounded border border-purple-500/30">
-                    <span className="flex items-center gap-1"><CheckCircle2 size={12}/> 랙(Rack) 다중 선택 가능</span>
-                    <span>선택하지 않으면 [생산팀 전체]가 조회됩니다.</span>
-                 </div>
-                 <div className="grid grid-cols-6 md:grid-cols-8 gap-2 animate-fade-in">
+          <div className="bg-gray-950/50 p-3 md:p-4 rounded-lg border border-gray-800/50 min-h-[80px] flex items-center transition-all">
+              
+              {/* A. 생산팀 랙 리스트 */}
+              {activeTab === "PRODUCTION" && (
+                <div className="w-full">
+                  <div className="text-[10px] md:text-xs text-purple-300 mb-3 font-bold flex flex-col md:flex-row items-start md:items-center justify-between gap-1 bg-purple-900/20 p-2 rounded border border-purple-500/30">
+                     <span className="flex items-center gap-1"><CheckCircle2 size={12}/> 랙(Rack) 다중 선택 가능</span>
+                     <span className="opacity-80">선택하지 않으면 [생산팀 전체] 조회</span>
+                  </div>
+                  <div className="grid grid-cols-6 md:grid-cols-8 gap-1.5 md:gap-2 animate-fade-in">
                     {productionZones.map((zone) => {
                       const isSelected = selectedZones.includes(zone);
                       return (
                         <button
                           key={zone}
                           onClick={() => toggleZone(zone)}
-                          className={`py-2 text-sm rounded border transition-all relative ${
+                          className={`py-2 text-xs md:text-sm rounded border transition-all relative ${
                             isSelected 
                               ? "bg-purple-600 text-white border-purple-500 font-bold shadow-[0_0_10px_rgba(147,51,234,0.5)]" 
                               : "bg-gray-900 text-gray-400 border-gray-700 hover:bg-gray-800"
@@ -148,25 +153,25 @@ export default function InventorySearchForm({ zones, items }: Props) {
                         </button>
                       );
                     })}
-                 </div>
-               </div>
-             )}
+                  </div>
+                </div>
+              )}
 
-             {/* B. 물류팀 구역 리스트 */}
-             {activeTab === "LOGISTICS" && (
-               <div className="w-full">
-                 <div className="text-xs text-blue-300 mb-3 font-bold flex items-center justify-between bg-blue-900/20 p-2 rounded border border-blue-500/30">
-                    <span className="flex items-center gap-1"><CheckCircle2 size={12}/> 구역(Zone) 다중 선택 가능</span>
-                    <span>선택하지 않으면 [물류팀 전체]가 조회됩니다.</span>
-                 </div>
-                 <div className="grid grid-cols-4 md:grid-cols-6 gap-2 animate-fade-in">
+              {/* B. 물류팀 구역 리스트 */}
+              {activeTab === "LOGISTICS" && (
+                <div className="w-full">
+                  <div className="text-[10px] md:text-xs text-blue-300 mb-3 font-bold flex flex-col md:flex-row items-start md:items-center justify-between gap-1 bg-blue-900/20 p-2 rounded border border-blue-500/30">
+                     <span className="flex items-center gap-1"><CheckCircle2 size={12}/> 구역(Zone) 다중 선택 가능</span>
+                     <span className="opacity-80">선택하지 않으면 [물류팀 전체] 조회</span>
+                  </div>
+                  <div className="grid grid-cols-4 md:grid-cols-6 gap-1.5 md:gap-2 animate-fade-in">
                     {logisticsZones.map((zone) => {
                        const isSelected = selectedZones.includes(zone);
                        return (
                         <button
                           key={zone}
                           onClick={() => toggleZone(zone)}
-                          className={`py-2 text-sm rounded border transition-all relative ${
+                          className={`py-2 text-xs md:text-sm rounded border transition-all relative ${
                             isSelected 
                               ? "bg-blue-600 text-white border-blue-500 font-bold shadow-[0_0_10px_rgba(37,99,235,0.5)]" 
                               : "bg-gray-900 text-gray-400 border-gray-700 hover:bg-gray-800"
@@ -176,17 +181,17 @@ export default function InventorySearchForm({ zones, items }: Props) {
                         </button>
                       );
                     })}
-                 </div>
-               </div>
-             )}
+                  </div>
+                </div>
+              )}
 
-             {/* C. 전체 보기 메시지 */}
-             {activeTab === "ALL" && (
-                <div className="text-sm text-gray-500 text-center w-full flex flex-col items-center gap-2 py-4">
+              {/* C. 전체 보기 메시지 */}
+              {activeTab === "ALL" && (
+                <div className="text-xs md:text-sm text-gray-500 text-center w-full flex flex-col items-center gap-2 py-4">
                   <Layers size={32} className="text-gray-700"/>
                   <span>모든 구역(생산팀 + 물류팀)의 전체 재고를 조회합니다.</span>
                 </div>
-             )}
+              )}
           </div>
         </div>
 
@@ -206,9 +211,9 @@ export default function InventorySearchForm({ zones, items }: Props) {
               onFocus={() => setShowItemDropdown(true)}
               onKeyDown={handleKeyDown}
               placeholder="예: 닭고기 10kg A (품목명, 규격, 랙 번호 등)"
-              className="w-full bg-black border border-gray-700 text-white rounded-lg pl-12 pr-4 py-4 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder:text-gray-600 text-lg"
+              className="w-full bg-black border border-gray-700 text-white rounded-lg pl-10 md:pl-12 pr-4 py-3 md:py-4 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder:text-gray-600 text-base md:text-lg"
             />
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500" size={20} />
+            <Search className="absolute left-3 md:left-4 top-1/2 transform -translate-y-1/2 text-gray-500" size={18} />
             
             {/* 자동완성 드롭다운 */}
             {showItemDropdown && keyword && filteredItems.length > 0 && (
@@ -236,26 +241,27 @@ export default function InventorySearchForm({ zones, items }: Props) {
               <div className="fixed inset-0 z-40" onClick={() => setShowItemDropdown(false)}></div>
             )}
           </div>
-          <p className="text-xs text-gray-500 mt-2 pl-1">
+          <p className="text-[10px] md:text-xs text-gray-500 mt-2 pl-1 break-keep">
             * 띄어쓰기를 하면 <span className="text-blue-400 font-bold">AND 조건</span>으로 검색됩니다.
           </p>
         </div>
 
         {/* 버튼 영역 */}
-        <div className="pt-4 flex gap-3">
+        <div className="pt-2 md:pt-4 flex gap-3">
           <button 
             onClick={() => { setKeyword(""); setSelectedZones([]); handleTabChange("PRODUCTION"); }}
-            className="px-6 py-4 rounded-lg bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white transition font-bold flex items-center gap-2"
+            className="px-4 md:px-6 py-3 md:py-4 rounded-lg bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white transition font-bold flex items-center justify-center gap-2 text-sm md:text-base shrink-0"
           >
-            <RotateCcw size={18} /> 초기화
+            <RotateCcw size={16} className="md:w-[18px] md:h-[18px]"/> 
+            <span className="hidden md:inline">초기화</span>
           </button>
           
           <button
             onClick={handleSearch}
             disabled={loading}
-            className="flex-1 bg-gradient-to-r from-blue-700 to-blue-600 hover:from-blue-600 hover:to-blue-500 text-white py-4 rounded-lg font-bold text-lg shadow-lg shadow-blue-900/30 transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
+            className="flex-1 bg-gradient-to-r from-blue-700 to-blue-600 hover:from-blue-600 hover:to-blue-500 text-white py-3 md:py-4 rounded-lg font-bold text-base md:text-lg shadow-lg shadow-blue-900/30 transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
           >
-            {loading ? <span className="animate-spin text-2xl">⟳</span> : <><Search size={20} /> 조회 실행</>}
+            {loading ? <span className="animate-spin text-xl md:text-2xl">⟳</span> : <><Search size={18} className="md:w-[20px] md:h-[20px]"/> 조회 실행</>}
           </button>
         </div>
 

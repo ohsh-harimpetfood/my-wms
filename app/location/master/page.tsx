@@ -1,20 +1,17 @@
 import { createClient } from "@/utils/supabase/server";
 import { Map, LayoutGrid } from "lucide-react";
-import LocationMasterClient from "@/components/location/LocationMasterClient"; // 하단에 작성된 컴포넌트
+import LocationMasterClient from "@/components/location/LocationMasterClient";
 
-// 데이터 갱신을 위해 동적 렌더링 설정
 export const dynamic = 'force-dynamic';
 
 export default async function LocationMasterPage() {
   const supabase = await createClient();
 
-  // 1. 위치 마스터 데이터 전체 조회 (Loc ID 순 정렬)
   const { data: locations, error } = await supabase
     .from("loc_master")
     .select("*")
     .order("loc_id", { ascending: true });
 
-  // 에러 처리
   if (error) {
     return (
       <div className="h-screen flex items-center justify-center bg-black">
@@ -27,29 +24,35 @@ export default async function LocationMasterPage() {
   }
 
   return (
-    <div className="p-4 md:p-8 space-y-6 bg-black min-h-screen font-[family-name:var(--font-geist-sans)] pb-24">
+    // 1. 전체 컨테이너 패딩 축소 (p-4 -> p-3, md:p-8)
+    <div className="p-3 md:p-8 space-y-4 md:space-y-6 bg-black min-h-screen font-[family-name:var(--font-geist-sans)] pb-24">
       
-      {/* 1. 상단 헤더 섹션 */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b border-gray-800 pb-6 gap-4">
+      {/* 2. 헤더 섹션 컴팩트화 */}
+      <div className="flex flex-row justify-between items-center border-b border-gray-800 pb-3 md:pb-6 gap-2">
         <div>
-          <h1 className="text-3xl font-black text-white flex items-center gap-3 tracking-tighter">
-            <LayoutGrid className="text-blue-500" size={32} />
-            로케이션 관리 (Location Master)
+          {/* 모바일: text-lg / PC: text-3xl */}
+          <h1 className="text-lg md:text-3xl font-black text-white flex items-center gap-2 md:gap-3 tracking-tighter">
+            <LayoutGrid className="text-blue-500 w-5 h-5 md:w-8 md:h-8" />
+            <span>로케이션 관리</span>
+            <span className="hidden md:inline text-gray-500 font-normal">(Location Master)</span>
           </h1>
-          <p className="text-gray-500 text-sm mt-2 font-medium">
+          {/* 모바일에서는 설명 숨김 */}
+          <p className="hidden md:block text-gray-500 text-sm mt-2 font-medium">
             창고 내 물리적 위치(Zone-Rack-Level-Side) 정보를 관리합니다.
           </p>
         </div>
         
-        <div className="flex flex-col items-end gap-2">
-          <div className="bg-gray-900 border border-gray-700 px-4 py-2 rounded-xl text-xs font-bold text-gray-400">
-            TOTAL LOCATIONS: <span className="text-blue-400 text-lg ml-1">{locations?.length.toLocaleString() || 0}</span>
+        {/* 통계 뱃지: 모바일 사이즈 최적화 */}
+        <div className="flex flex-col items-end gap-1">
+          <div className="bg-gray-900 border border-gray-700 px-2 py-1 md:px-4 md:py-2 rounded-lg md:rounded-xl text-[10px] md:text-xs font-bold text-gray-400 flex items-center gap-1">
+            <span className="hidden md:inline">TOTAL:</span>
+            <span className="md:hidden">총</span>
+            <span className="text-blue-400 text-sm md:text-lg">{locations?.length.toLocaleString() || 0}</span>
           </div>
         </div>
       </div>
 
-      {/* 2. 클라이언트 액션 섹션 (검색, 필터, 리스트) */}
-      {/* initialLocations로 서버 데이터를 넘겨주며, 인터랙션은 클라이언트에서 처리 */}
+      {/* 3. 클라이언트 컴포넌트 */}
       <LocationMasterClient initialLocations={locations || []} />
 
     </div>

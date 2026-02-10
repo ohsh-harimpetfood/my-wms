@@ -57,7 +57,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md bg-gray-900 border border-gray-800 p-8 rounded-2xl shadow-2xl animate-fade-in">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-white mb-2 flex items-center justify-center gap-2">
-            <Lock className="text-blue-500" /> WMS Login
+            <Lock className="text-blue-500" /> My WMS Login
           </h1>
           <p className="text-gray-400 text-sm">창고 관리 시스템에 접속합니다.</p>
         </div>

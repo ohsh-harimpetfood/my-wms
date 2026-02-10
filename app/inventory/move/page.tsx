@@ -6,13 +6,15 @@ import { useState, useEffect } from "react";
 import { ArrowLeft, ArrowRight, MapPin, Search, CheckCircle } from "lucide-react";
 import LocationSelectorModal from "@/components/LocationSelectorModal";
 import { TX_TYPES, TxCode } from "@/constants/transaction";
-import { useAuth } from "@/context/AuthProvider"; // ✨ [추가] 인증 훅
+import { useAuth } from "@/context/AuthProvider"; 
+import { useUI } from "@/context/UIProvider"; // 🚀 UIProvider
 
 export default function InventoryMovePage() {
   const router = useRouter();
   const supabase = createClient();
   const searchParams = useSearchParams();
-  const { user } = useAuth(); // ✨ [추가] 유저 정보
+  const { user } = useAuth();
+  const { toast, confirm } = useUI(); // 🚀 Toast & Confirm
 
   // URL 파라미터 (Source 정보)
   const sourceId = searchParams.get("id"); 
@@ -27,7 +29,6 @@ export default function InventoryMovePage() {
   const [itemName, setItemName] = useState("");
   const [loading, setLoading] = useState(false);
   const [showLocModal, setShowLocModal] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   // 이동 유형 (랙 이동)
   const moveType: TxCode = "MV_LOC"; 
@@ -40,17 +41,36 @@ export default function InventoryMovePage() {
     }
   }, [itemKey, supabase]);
 
+  // 🛡️ 수량 입력 핸들러 (음수 방지)
+  const handleQtyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    const sanitized = val.replace(/[^0-9]/g, '');
+    setMoveQty(sanitized);
+  };
+
+  // ⚡ 전체 수량 입력 헬퍼
+  const setMaxMoveQty = () => {
+    setMoveQty(String(maxQty));
+  };
+
   // 이동 실행 핸들러
   const handleMove = async () => {
-    if (!user) return alert("로그인 정보가 없습니다."); // ✨ 안전장치
-    if (!targetLoc) return alert("이동할 위치를 선택해주세요.");
+    if (!user) return toast.error("로그인 정보가 없습니다.");
+    if (!targetLoc) return toast.warning("이동할 위치를 선택해주세요.");
     
     const finalTargetLoc = targetLoc.toUpperCase();
-    if (finalTargetLoc === sourceLoc) return alert("현재 위치와 동일한 곳으로 이동할 수 없습니다.");
+    if (finalTargetLoc === sourceLoc) return toast.warning("현재 위치와 동일한 곳으로 이동할 수 없습니다.");
     
     const qty = Number(moveQty);
-    if (!qty || qty <= 0) return alert("이동할 수량을 입력해주세요.");
-    if (qty > maxQty) return alert(`보유 재고(${maxQty})보다 많이 이동할 수 없습니다.`);
+    if (!qty || qty <= 0) return toast.warning("이동할 수량을 입력해주세요.");
+    if (qty > maxQty) return toast.error(`보유 재고(${maxQty})보다 많이 이동할 수 없습니다.`);
+
+    // 🚀 실행 전 확인
+    const ok = await confirm(
+        `[재고 이동 확인]\n\n품목: ${itemName}\n수량: ${qty}\n\n${sourceLoc} ➔ ${finalTargetLoc}\n\n이동하시겠습니까?`,
+        "info"
+    );
+    if (!ok) return;
 
     setLoading(true);
     try {
@@ -64,7 +84,7 @@ export default function InventoryMovePage() {
             sourceQuery = supabase.from("inventory").update({ 
                 quantity: remainingQty, 
                 updated_at: new Date().toISOString(),
-                updated_by: user.id // ✨ 수정자 기록
+                updated_by: user.id 
             });
         }
         
@@ -88,7 +108,7 @@ export default function InventoryMovePage() {
             await supabase.from("inventory").update({
                 quantity: targetInv.quantity + qty,
                 updated_at: new Date().toISOString(),
-                updated_by: user.id // ✨ 수정자 기록
+                updated_by: user.id
             }).eq("id", targetInv.id);
         } else {
             // 위치 유효성 체크
@@ -101,7 +121,7 @@ export default function InventoryMovePage() {
                 lot_no: lotNo,
                 quantity: qty,
                 status: 'AVAILABLE',
-                updated_by: user.id // ✨ 생성자 기록 (inventory엔 created_by가 없으므로 updated_by 활용)
+                updated_by: user.id
             });
         }
 
@@ -116,7 +136,7 @@ export default function InventoryMovePage() {
                 lot_no: lotNo,
                 quantity: -qty,
                 remark: `이동출고 (To: ${finalTargetLoc})`,
-                created_by: user.id // ✨ 작업자 기록
+                created_by: user.id 
             },
             {
                 transaction_type: 'MOVE',
@@ -127,64 +147,63 @@ export default function InventoryMovePage() {
                 lot_no: lotNo,
                 quantity: qty,
                 remark: `이동입고 (From: ${sourceLoc})`,
-                created_by: user.id // ✨ 작업자 기록
+                created_by: user.id
             }
         ];
 
         const { error: histErr } = await supabase.from("stock_tx").insert(historyData);
         if (histErr) throw new Error("이력 저장 실패: " + histErr.message);
 
-        setShowSuccessModal(true);
+        // 🚀 성공 처리
+        toast.success("재고 이동이 완료되었습니다.");
+        router.push("/inventory"); 
+        router.refresh();
 
     } catch (e: any) {
         console.error(e);
-        alert("오류 발생: " + e.message);
+        toast.error("오류 발생: " + e.message);
     } finally {
         setLoading(false);
     }
   };
 
-  const handleSuccessConfirm = () => {
-    setShowSuccessModal(false);
-    router.push("/inventory");
-    router.refresh();
-  };
-
   return (
-    <div className="p-8 bg-black min-h-screen text-white font-[family-name:var(--font-geist-sans)]">
+    <div className="p-4 md:p-8 bg-black min-h-screen text-white font-[family-name:var(--font-geist-sans)] pb-32">
       
-      <div className="flex items-center gap-4 mb-8 border-b border-gray-800 pb-4 max-w-4xl mx-auto">
-        <button onClick={() => router.back()} className="text-gray-400 hover:text-white"><ArrowLeft /></button>
+      {/* 헤더 */}
+      <div className="flex items-center gap-4 mb-8 border-b border-gray-800 pb-4 max-w-4xl mx-auto sticky top-0 bg-black/90 backdrop-blur-sm z-30 pt-4">
+        <button onClick={() => router.back()} className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition"><ArrowLeft /></button>
         <div>
-            <h1 className="text-2xl font-bold text-blue-500">📦 재고 이동 (Stock Move)</h1>
+            <h1 className="text-xl md:text-2xl font-bold text-blue-500">📦 재고 이동 (Move)</h1>
             <span className="text-xs bg-yellow-900/30 text-yellow-500 border border-yellow-800 px-2 py-0.5 rounded mt-1 inline-block font-bold">
                 {TX_TYPES[moveType].label}
             </span>
         </div>
       </div>
 
-      <div className="max-w-4xl mx-auto flex flex-col md:flex-row gap-8 items-start">
+      <div className="max-w-4xl mx-auto flex flex-col md:flex-row gap-6 md:gap-8 items-start animate-fade-in">
+        
         {/* Source Card */}
         <div className="flex-1 w-full bg-gray-900 border border-gray-800 rounded-xl p-6 opacity-80">
             <h2 className="text-lg font-bold text-gray-400 mb-4 flex items-center gap-2">📤 보내는 곳 (From)</h2>
             <div className="space-y-4">
-                <div className="bg-black p-4 rounded border border-gray-800">
-                    <div className="text-sm text-gray-500 mb-1">위치</div>
-                    <div className="text-xl font-bold text-white">{sourceLoc}</div>
+                <div className="bg-black p-4 rounded-lg border border-gray-800 shadow-inner">
+                    <div className="text-sm text-gray-500 mb-1 font-bold">현재 위치</div>
+                    <div className="text-2xl font-bold text-white font-mono">{sourceLoc}</div>
                 </div>
                 <div>
-                    <div className="text-sm text-gray-500 mb-1">품목</div>
+                    <div className="text-sm text-gray-500 mb-1 font-bold">이동할 품목</div>
                     <div className="text-lg font-bold text-white">{itemName}</div>
                     <div className="text-sm text-gray-500">{itemKey}</div>
                 </div>
-                <div className="flex gap-4">
+                <div className="grid grid-cols-2 gap-4">
                     <div>
-                        <div className="text-sm text-gray-500 mb-1">LOT</div>
-                        <div className="text-white font-mono">{lotNo || '-'}</div>
+                        <div className="text-sm text-gray-500 mb-1 font-bold">LOT 번호</div>
+                        <div className="text-white font-mono bg-gray-800 px-2 py-1 rounded text-center">{lotNo || '-'}</div>
                     </div>
                     <div>
-                        <div className="text-sm text-gray-500 mb-1">현재고</div>
-                        <div className="text-blue-400 font-bold">{maxQty.toLocaleString()}</div>
+                        <div className="text-sm text-gray-500 mb-1 font-bold">현재고</div>
+                        <div className="text-blue-400 font-bold text-xl">{maxQty.toLocaleString()}</div>
                     </div>
                 </div>
             </div>
@@ -197,30 +216,52 @@ export default function InventoryMovePage() {
             <h2 className="text-lg font-bold text-blue-400 mb-4 flex items-center gap-2">📥 받는 곳 (To)</h2>
             <div className="space-y-6">
                 <div>
-                    <label className="block text-sm text-gray-400 mb-2">이동할 위치</label>
-                    <div className="flex items-center bg-black border border-blue-500 rounded-lg p-4 transition group focus-within:ring-2 focus-within:ring-blue-500/50">
-                        <MapPin className="text-blue-500 mr-3" />
+                    <label className="block text-sm text-gray-400 mb-2 font-bold">이동할 위치</label>
+                    <div className="flex items-center bg-black border border-blue-500 rounded-lg p-1 transition group focus-within:ring-2 focus-within:ring-blue-500/50 h-14">
+                        <div className="pl-4 pr-2 text-blue-500"><MapPin size={20}/></div>
                         <input 
                             type="text" 
                             value={targetLoc} 
                             onChange={(e) => setTargetLoc(e.target.value.toUpperCase())}
-                            placeholder="코드 입력 또는 돋보기 클릭" 
-                            className="bg-transparent outline-none text-white font-bold text-lg w-full placeholder-gray-600 uppercase" 
+                            placeholder="위치 코드 입력" 
+                            className="bg-transparent outline-none text-white font-bold text-xl w-full placeholder-gray-600 uppercase font-mono h-full" 
                         />
-                        <Search 
-                            className="text-gray-500 hover:text-white cursor-pointer" 
-                            size={20} 
+                        <div 
+                            className="pr-4 pl-2 text-gray-500 hover:text-white cursor-pointer h-full flex items-center"
                             onClick={() => setShowLocModal(true)}
-                        />
+                        >
+                            <Search size={24} />
+                        </div>
                     </div>
                 </div>
                 <div>
-                    <label className="block text-sm text-gray-400 mb-2">이동 수량</label>
-                    <input type="number" value={moveQty} onChange={(e) => setMoveQty(e.target.value)} placeholder="0" className="w-full bg-black border border-gray-700 rounded-lg p-4 text-right text-white font-bold text-2xl outline-none focus:border-blue-500" />
-                    <div className="text-right text-xs text-gray-500 mt-1">최대 {maxQty.toLocaleString()}개 가능</div>
+                    <label className="block text-sm text-gray-400 mb-2 font-bold">이동 수량</label>
+                    <div className="relative">
+                        <input 
+                            type="number" 
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            value={moveQty} 
+                            onChange={handleQtyChange} 
+                            placeholder="0" 
+                            className="w-full bg-black border border-gray-700 rounded-lg p-4 text-right text-white font-bold text-3xl outline-none focus:border-blue-500 h-16" 
+                        />
+                        <button 
+                            onClick={setMaxMoveQty}
+                            className="absolute left-2 top-1/2 -translate-y-1/2 bg-gray-800 hover:bg-gray-700 text-xs px-2 py-1 rounded text-gray-300 transition"
+                        >
+                            전체
+                        </button>
+                    </div>
+                    <div className="text-right text-xs text-gray-500 mt-2">이동 가능: {maxQty.toLocaleString()}</div>
                 </div>
-                <button onClick={handleMove} disabled={loading} className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg shadow-lg shadow-blue-900/20 transition disabled:opacity-50 mt-2 active:scale-95">
-                    {loading ? "이동 중..." : "재고 이동 실행"}
+                
+                <button 
+                    onClick={handleMove} 
+                    disabled={loading} 
+                    className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-lg shadow-blue-900/20 transition disabled:opacity-50 mt-2 active:scale-[0.98] text-lg"
+                >
+                    {loading ? "이동 중..." : "재고 이동 실행 (MOVE)"}
                 </button>
             </div>
         </div>
@@ -231,27 +272,6 @@ export default function InventoryMovePage() {
             onClose={() => setShowLocModal(false)}
             onSelect={(locId) => { setTargetLoc(locId); setShowLocModal(false); }}
         />
-      )}
-
-      {showSuccessModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="bg-[#1a1a1a] border border-gray-700 p-8 rounded-2xl shadow-2xl flex flex-col items-center max-w-sm w-full mx-4 transform transition-all scale-100">
-            <div className="w-20 h-20 bg-green-500/10 rounded-full flex items-center justify-center mb-6 shadow-[0_0_20px_rgba(34,197,94,0.2)]">
-               <CheckCircle className="text-green-500 w-10 h-10" strokeWidth={3} />
-            </div>
-            <h3 className="text-2xl font-bold text-white mb-2">이동 완료</h3>
-            <p className="text-gray-400 text-center mb-8 leading-relaxed">
-              재고 이동이 <span className="text-green-400 font-bold">성공적으로 처리</span>되었습니다.<br/>
-              재고 목록으로 돌아갑니다.
-            </p>
-            <button 
-              onClick={handleSuccessConfirm}
-              className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-green-900/30 transition active:scale-95"
-            >
-              확인
-            </button>
-          </div>
-        </div>
       )}
 
     </div>

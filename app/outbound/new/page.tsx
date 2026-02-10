@@ -3,14 +3,14 @@
 import { createClient } from "@/utils/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, Suspense } from "react";
-import { ArrowLeft, Box, MapPin, Package, AlertTriangle, Check } from "lucide-react";
+import { ArrowLeft, Box, MapPin, Package, AlertTriangle, Check, Loader2 } from "lucide-react";
 import { useUI } from "@/context/UIProvider"; 
 import { TX_TYPES, TxCode, getTxTypesByGroup } from '@/constants/transaction'; 
-import { useAuth } from "@/context/AuthProvider"; // ✨ [추가] 인증 훅
+import { useAuth } from "@/context/AuthProvider"; 
 
 export default function NewOutboundPage() {
   return (
-    <Suspense fallback={<div className="text-white text-center py-20">로딩 중...</div>}>
+    <Suspense fallback={<div className="flex h-screen items-center justify-center bg-black text-white">로딩 중...</div>}>
       <OutboundForm />
     </Suspense>
   );
@@ -21,7 +21,7 @@ function OutboundForm() {
   const supabase = createClient();
   const searchParams = useSearchParams();
   const { alert, confirm, toast } = useUI(); 
-  const { user } = useAuth(); // ✨ [추가] 유저 정보
+  const { user } = useAuth(); 
 
   // URL 파라미터에서 초기값 읽기
   const paramLoc = searchParams.get("loc") || "";
@@ -38,9 +38,7 @@ function OutboundForm() {
     remark: ""
   });
   
-  // 🚀 [신규] 출고 유형 상태 (기본값: 생산 투입)
   const [txCode, setTxCode] = useState<TxCode>('OUT_PROD');
-
   const [itemName, setItemName] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -54,10 +52,17 @@ function OutboundForm() {
     fetchItemName();
   }, [formData.item_key, supabase]);
 
+  // 🛡️ 수량 입력 핸들러 (음수 방지)
+  const handleQtyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    const sanitized = val.replace(/[^0-9]/g, ''); // 숫자만 허용
+    setFormData({ ...formData, out_qty: sanitized });
+  };
+
   // 저장 핸들러
   const handleSave = async () => {
-    if (!user) { // ✨ 안전장치
-        await alert("로그인 세션이 만료되었습니다. 다시 로그인해주세요.", "error");
+    if (!user) {
+        await alert("로그인 세션이 만료되었습니다.", "error");
         return;
     }
 
@@ -72,7 +77,6 @@ function OutboundForm() {
         return;
     }
 
-    // 🚀 확인 메시지에 출고 유형 포함
     const txLabel = TX_TYPES[txCode].label;
     const isConfirmed = await confirm(
         `[${txLabel}]\n품목: ${itemName || formData.item_key}\n수량: ${qty.toLocaleString()} EA\n\n출고하시겠습니까?`, 
@@ -82,7 +86,7 @@ function OutboundForm() {
 
     setLoading(true);
     try {
-        // 1. 재고 조회
+        // 1. 재고 조회 (최신 상태 확인)
         const { data: currentInv, error: invError } = await supabase
             .from("inventory")
             .select("id, quantity")
@@ -94,7 +98,7 @@ function OutboundForm() {
         if (invError || !currentInv) throw new Error("해당 재고를 찾을 수 없습니다. 이미 출고되었거나 삭제된 데이터일 수 있습니다.");
         
         const newQty = currentInv.quantity - qty;
-        if (newQty < 0) throw new Error("시스템 재고 부족 오류 (동시성 문제)");
+        if (newQty < 0) throw new Error("시스템 재고 부족 오류 (다른 사용자가 먼저 출고했을 수 있습니다)");
 
         // 2. 재고 차감 (업데이트 or 삭제)
         if (newQty === 0) {
@@ -103,26 +107,26 @@ function OutboundForm() {
             await supabase.from("inventory").update({ 
                 quantity: newQty, 
                 updated_at: new Date().toISOString(),
-                updated_by: user.id // ✨ 수정자 실명 기록
+                updated_by: user.id 
             }).eq("id", currentInv.id);
         }
 
-        // 3. 수불 이력 생성 (🚀 tx_code 및 created_by 저장)
+        // 3. 수불 이력 생성
         const { error: txError } = await supabase.from("stock_tx").insert({
             transaction_type: 'OUTBOUND',
             io_type: 'OUT',
-            tx_code: txCode,               // ✨ 선택한 유형 코드
+            tx_code: txCode, 
             location_code: formData.location_code,
             item_key: formData.item_key,
             lot_no: formData.lot_no,
             quantity: -qty, 
-            remark: formData.remark || txLabel, // 비고 없으면 유형명으로 대체
-            created_by: user.id            // ✨ 작업자 실명 기록
+            remark: formData.remark || txLabel,
+            created_by: user.id 
         });
 
         if (txError) throw txError;
 
-        await alert("출고 처리가 완료되었습니다.", "success");
+        await toast.success("출고 처리가 완료되었습니다.");
         router.push("/inventory"); 
         router.refresh();
 
@@ -135,12 +139,14 @@ function OutboundForm() {
   };
 
   return (
-    <div className="p-4 md:p-8 bg-black min-h-screen text-white font-[family-name:var(--font-geist-sans)] flex items-center justify-center">
+    <div className="p-4 md:p-8 bg-black min-h-screen text-white font-[family-name:var(--font-geist-sans)] flex justify-center pb-24">
       
       <div className="w-full max-w-2xl animate-fade-in">
+        
+        {/* 헤더 */}
         <div className="flex items-center gap-4 mb-6 border-b border-gray-800 pb-4">
             <button onClick={() => router.back()} className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition"><ArrowLeft /></button>
-            <h1 className="text-2xl font-bold text-red-500 flex items-center gap-2">
+            <h1 className="text-xl md:text-2xl font-bold text-red-500 flex items-center gap-2">
                 <AlertTriangle className="animate-pulse" /> 
                 출고 등록 (Outbound)
             </h1>
@@ -191,11 +197,10 @@ function OutboundForm() {
             {/* 입력 폼 */}
             <div className="space-y-6 pt-2">
 
-                {/* 🚀 [신규 UI] 출고 유형 선택 (버튼형 칩) */}
+                {/* 출고 유형 선택 (버튼형 칩) */}
                 <div>
                     <label className="block text-sm text-gray-400 mb-3 font-bold">출고 유형 (Issue Type)</label>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                        {/* TX_TYPES 중 'OUT' 타입만 골라서 버튼 생성 */}
                         {getTxTypesByGroup('OUT').map((type) => (
                             <button
                                 key={type.code}
@@ -206,7 +211,6 @@ function OutboundForm() {
                                         : "bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700 hover:text-gray-200"
                                 }`}
                             >
-                                {/* 선택된 항목에 체크 표시 */}
                                 {txCode === type.code && <Check size={14} className="absolute left-2 text-white/70" />}
                                 {type.label}
                             </button>
@@ -219,9 +223,11 @@ function OutboundForm() {
                     <div className="relative group">
                         <input 
                             type="number" 
+                            inputMode="numeric" // 모바일 키패드
+                            pattern="[0-9]*" 
                             value={formData.out_qty}
-                            onChange={(e) => setFormData({...formData, out_qty: e.target.value})}
-                            className="w-full bg-black border border-gray-700 rounded-xl p-4 text-white outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all text-right text-3xl font-bold placeholder:text-gray-800"
+                            onChange={handleQtyChange} // 음수 방지 적용됨
+                            className="w-full bg-black border border-gray-700 rounded-xl p-4 text-white outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-all text-right text-3xl font-bold placeholder:text-gray-800 h-16"
                             placeholder="0"
                             autoFocus
                         />
@@ -231,9 +237,9 @@ function OutboundForm() {
                         <div className="flex justify-end mt-2">
                             <button 
                                 onClick={() => setFormData({...formData, out_qty: String(paramMaxQty)})}
-                                className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2"
+                                className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2 flex items-center gap-1"
                             >
-                                전량 출고 ({paramMaxQty.toLocaleString()})
+                                <Check size={12}/> 전량 출고 ({paramMaxQty.toLocaleString()})
                             </button>
                         </div>
                     )}
@@ -254,12 +260,11 @@ function OutboundForm() {
             <button 
                 onClick={handleSave}
                 disabled={loading}
-                className="w-full bg-gradient-to-r from-red-700 to-red-600 hover:from-red-600 hover:to-red-500 text-white font-bold py-4 rounded-xl text-lg shadow-lg shadow-red-900/30 transition-all transform active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed mt-4 flex items-center justify-center gap-2"
+                className="w-full bg-gradient-to-r from-red-700 to-red-600 hover:from-red-600 hover:to-red-500 text-white font-bold py-4 rounded-xl text-lg shadow-lg shadow-red-900/30 transition-all transform active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed mt-4 flex items-center justify-center gap-2 h-16"
             >
                 {loading ? (
                     <>
-                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                        처리 중...
+                        <Loader2 className="animate-spin" /> 처리 중...
                     </>
                 ) : (
                     <>📤 출고 확정 (Confirm)</>
