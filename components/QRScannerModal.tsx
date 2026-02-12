@@ -34,11 +34,8 @@ export default function QRScannerModal({ onClose, onScan }: Props) {
 
       {/* 카메라 영역 */}
       <div className="flex-1 flex items-center justify-center relative bg-black">
-        {/* 🔴 [핵심 수정] 
-            [&_video]: ... 클래스를 사용하여 내부 video 태그를 강제로 선택 
-            !w-full !h-full !object-cover : 라이브러리 인라인 스타일 무시하고 꽉 채우기
-        */}
-        <div className="w-full max-w-md aspect-square relative overflow-hidden rounded-2xl border-2 border-gray-800 mx-4 [&_video]:!object-cover [&_video]:!w-full [&_video]:!h-full">
+        {/* 🔴 [수정] 비디오 스타일 강제 고정 (absolute, top-0, left-0 추가) */}
+        <div className="w-full max-w-md aspect-square relative overflow-hidden rounded-2xl border-2 border-gray-800 mx-4 [&_video]:!object-cover [&_video]:!w-full [&_video]:!h-full [&_video]:!absolute [&_video]:!top-0 [&_video]:!left-0">
             
             <Scanner 
                 onScan={(result) => {
@@ -52,11 +49,10 @@ export default function QRScannerModal({ onClose, onScan }: Props) {
                 components={{
                     finder: false
                 }}
-                // styles 속성은 제거했습니다. (위의 className으로 제어)
             />
             
             {/* 스캔 가이드 라인 */}
-            <div className="absolute inset-0 pointer-events-none p-8 flex items-center justify-center">
+            <div className="absolute inset-0 pointer-events-none p-8 flex items-center justify-center z-10">
                 <div className="w-full h-full border-2 border-blue-500/80 relative rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]">
                     <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-blue-500 -mt-[2px] -ml-[2px]"></div>
                     <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-blue-500 -mt-[2px] -mr-[2px]"></div>
@@ -68,7 +64,6 @@ export default function QRScannerModal({ onClose, onScan }: Props) {
         </div>
       </div>
 
-      {/* 하단 안내 */}
       <div className="p-8 text-center text-gray-400 bg-black pb-16">
         <p className="text-lg font-bold text-white mb-1">QR 코드를 스캔하세요</p>
         <p className="text-sm">Location 바코드를 사각형 안에 맞춰주세요.</p>

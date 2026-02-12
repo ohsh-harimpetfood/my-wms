@@ -46,7 +46,7 @@ export default function LoginPage() {
         localStorage.removeItem("savedEmail");
       }
 
-     // ✨ 여기 수정됨: 로그인 성공 시 대시보드로 이동
+      // ✨ 로그인 성공 시 대시보드로 이동
       router.push("/dashboard"); 
       router.refresh();
     }
@@ -93,8 +93,8 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* ✨ 아이디 저장 체크박스 */}
-          <div className="flex items-center">
+          {/* ✨ 아이디 저장 & 비밀번호 찾기 (Flex로 양쪽 배치) */}
+          <div className="flex items-center justify-between">
             <button
               type="button"
               onClick={() => setRememberId(!rememberId)}
@@ -107,6 +107,14 @@ export default function LoginPage() {
               )}
               아이디 저장
             </button>
+            
+            {/* 🚀 [추가됨] 비밀번호 찾기 링크 */}
+            <Link 
+                href="/forgot-password" 
+                className="text-sm text-gray-500 hover:text-blue-400 transition underline-offset-4 hover:underline"
+            >
+                비밀번호를 잊으셨나요?
+            </Link>
           </div>
 
           {errorMsg && (

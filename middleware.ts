@@ -1,4 +1,4 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
@@ -23,42 +23,41 @@ export async function middleware(request: NextRequest) {
     }
   )
 
-  // 1. 유저 인증 정보 확인
   const { data: { user } } = await supabase.auth.getUser()
   const path = request.nextUrl.pathname
-  const isPublicPage = path === '/login' || path === '/signup'
 
-  // 2. 비로그인 유저 보호
+  // 공개 페이지 목록
+  const publicPaths = ['/login', '/signup', '/forgot-password', '/reset-password', '/auth']
+  const isPublicPage = publicPaths.some(publicPath => path.startsWith(publicPath))
+
+  // 1. 비로그인 유저 보호
   if (!user && !isPublicPage) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  // 3. 로그인 유저 권한 기반 보호 (GUEST 제한)
+  // 2. 로그인 유저 처리
   if (user) {
-    if (isPublicPage) {
+    // 🚀 [핵심 수정] 로그인 상태라도 '/reset-password'는 접속 허용!
+    // 그 외의 공개 페이지(로그인, 회원가입 등) 접근 시에만 대시보드로 이동
+    if (isPublicPage && path !== '/reset-password') {
       return NextResponse.redirect(new URL('/dashboard', request.url))
     }
 
-    // ✨ [추가] DB에서 프로필 정보를 가져와 권한 확인
-    // 서버 사이드에서 직접 profiles 테이블을 확인합니다.
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
+    // GUEST 권한 체크 (대시보드 외 접근 제한)
+    if (path !== '/dashboard') {
+        // 성능을 위해 필요 시 주석 처리하거나 최적화 가능
+        const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
 
-    // 🚫 GUEST 권한 제한 로직
-    // 대시보드 외의 기능 페이지(/inventory, /inbound, /outbound, /master, /admin 등) 접근 시도 시
-    const isDashboard = path === '/dashboard'
-    const isGuest = profile?.role === 'GUEST'
-
-    if (isGuest && !isDashboard) {
-      // 게스트는 대시보드 외에는 접근 불가 -> 대시보드로 강제 리다이렉트
-      return NextResponse.redirect(new URL('/dashboard', request.url))
+        if (profile?.role === 'GUEST') {
+            return NextResponse.redirect(new URL('/dashboard', request.url))
+        }
     }
   }
 
-  // 4. 루트('/') 접속 처리
   if (path === '/') {
     return NextResponse.redirect(new URL(user ? '/dashboard' : '/login', request.url))
   }
