@@ -34,7 +34,11 @@ export default function QRScannerModal({ onClose, onScan }: Props) {
 
       {/* 카메라 영역 */}
       <div className="flex-1 flex items-center justify-center relative bg-black">
-        <div className="w-full max-w-md aspect-square relative overflow-hidden rounded-2xl border-2 border-gray-800 mx-4">
+        {/* 🔴 [핵심 수정] 
+            [&_video]: ... 클래스를 사용하여 내부 video 태그를 강제로 선택 
+            !w-full !h-full !object-cover : 라이브러리 인라인 스타일 무시하고 꽉 채우기
+        */}
+        <div className="w-full max-w-md aspect-square relative overflow-hidden rounded-2xl border-2 border-gray-800 mx-4 [&_video]:!object-cover [&_video]:!w-full [&_video]:!h-full">
             
             <Scanner 
                 onScan={(result) => {
@@ -48,18 +52,7 @@ export default function QRScannerModal({ onClose, onScan }: Props) {
                 components={{
                     finder: false
                 }}
-                // 🔴 [수정 포인트] video 스타일에 width/height 100% 강제 적용
-                styles={{
-                    container: { 
-                        width: '100%', 
-                        height: '100%' 
-                    },
-                    video: { 
-                        width: '100%', 
-                        height: '100%', 
-                        objectFit: 'cover' // 비율 유지하며 꽉 채우기
-                    }
-                }}
+                // styles 속성은 제거했습니다. (위의 className으로 제어)
             />
             
             {/* 스캔 가이드 라인 */}
