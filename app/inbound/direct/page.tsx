@@ -4,12 +4,12 @@ import { createClient } from "@/utils/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
 import { ArrowLeft, Search, Package, Check, Calendar, Hash } from "lucide-react";
-import LocationSelectorModal from "@/components/LocationSelectorModal";
+// 🚀 [수정] 맵 기반 선택기 Import
+import LocationMapSelector from "@/components/LocationMapSelector"; 
 import { TX_TYPES, TxCode, getTxTypesByGroup } from '@/constants/transaction';
 import { useAuth } from "@/context/AuthProvider";
 import { useUI } from "@/context/UIProvider";
 
-// 🚀 [수정 1] Item 인터페이스 수정
 export interface Item {
   item_key: string;
   item_name: string;
@@ -194,7 +194,6 @@ export default function DirectInboundPage() {
   const isSubMaterial = selectedItem?.item_type === SUB_MATERIAL_TYPE || selectedItem?.lot_required === 'N';
 
   return (
-    // 🚀 [수정] 하단 패딩 증가 (pb-32 -> pb-40) : 네비게이션 바 공간 확보
     <div className="p-4 md:p-8 bg-black min-h-screen text-white font-[family-name:var(--font-geist-sans)] pb-40">
       
       {/* 헤더 */}
@@ -230,9 +229,8 @@ export default function DirectInboundPage() {
         <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl">
           <label className="block text-sm text-gray-400 mb-2 font-bold">품목 선택</label>
           {selectedItem ? (
-            // 🚀 [수정] flex 레이아웃 개선 (gap 추가, 텍스트 줄바꿈 처리)
             <div className="flex justify-between items-center gap-4 bg-blue-900/20 border border-blue-500 p-4 rounded-lg">
-                <div className="flex-1 min-w-0"> {/* min-w-0: flex 내부 텍스트 줄바꿈 필수 속성 */}
+                <div className="flex-1 min-w-0"> 
                     <div className="font-bold text-lg md:text-xl text-white break-keep leading-snug">
                         {selectedItem.item_name}
                     </div>
@@ -247,8 +245,6 @@ export default function DirectInboundPage() {
                       )}
                     </div>
                 </div>
-                
-                {/* 버튼이 찌그러지지 않도록 shrink-0 추가 */}
                 <button 
                     onClick={() => setSelectedItem(null)} 
                     className="shrink-0 text-sm text-red-400 font-bold border border-red-900 px-3 py-2 rounded hover:bg-red-900/30 transition"
@@ -258,7 +254,6 @@ export default function DirectInboundPage() {
             </div>
           ) : (
             <div className="relative">
-                {/* ... 검색창 기존 코드 유지 ... */}
                 <div className="flex items-center bg-black border border-gray-700 rounded-lg p-1 focus-within:border-blue-500 transition h-14">
                     <div className="pl-4 pr-2 text-gray-500"><Search size={20} /></div>
                     <input 
@@ -275,8 +270,8 @@ export default function DirectInboundPage() {
                         <div className="p-4 text-center text-gray-500 text-sm">검색 결과가 없습니다.</div>
                       ) : (
                         filteredItems.map(item => (
-                            <div key={item.item_key} onClick={() => handleSelectItem(item)} className="p-4 hover:bg-gray-700 cursor-pointer border-b border-gray-700 last:border-0 transition text-sm flex items-center justify-between group min-h-[4rem]"> {/* min-h 추가로 터치 영역 확보 */}
-                                <div className="flex-1 pr-2"> {/* 텍스트 영역 확보 */}
+                            <div key={item.item_key} onClick={() => handleSelectItem(item)} className="p-4 hover:bg-gray-700 cursor-pointer border-b border-gray-700 last:border-0 transition text-sm flex items-center justify-between group min-h-[4rem]"> 
+                                <div className="flex-1 pr-2"> 
                                   <div className="font-bold text-white group-hover:text-blue-400 transition break-keep">
                                     {item.item_name}
                                   </div>
@@ -380,9 +375,7 @@ export default function DirectInboundPage() {
              </div>
         )}
 
-        {/* 🚀 [수정] 하단 버튼 영역 */}
-        {/* 모바일: static + mt-6 (문서 흐름 끝에 위치하여 가려짐 방지) */}
-        {/* PC: fixed + bottom-0 (기존처럼 하단 고정) */}
+        {/* 하단 버튼 영역 */}
         <div className="mt-6 md:mt-0 md:fixed md:bottom-0 md:left-0 md:w-full md:p-4 md:bg-black/80 md:backdrop-blur-md md:border-t md:border-gray-800 md:z-50">
             <button 
                 onClick={handleSave}
@@ -396,7 +389,8 @@ export default function DirectInboundPage() {
       </div>
 
       {showLocModal && (
-        <LocationSelectorModal 
+        // 🚀 [수정] 맵 기반 셀렉터 적용
+        <LocationMapSelector 
             onClose={() => setShowLocModal(false)}
             onSelect={handleSelectLocation}
         />

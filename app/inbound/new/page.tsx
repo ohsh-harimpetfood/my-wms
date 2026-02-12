@@ -3,20 +3,20 @@
 import { createClient } from "@/utils/supabase/client";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
-// 🚀 [수정 1] 'X' 아이콘 추가 및 아이콘들 import
+// 🚀 [수정] 'X' 아이콘 import 추가
 import { ArrowLeft, Search, Plus, Check, Minus, Trash2, Package, X } from "lucide-react"; 
 import { TxCode, getTxTypesByGroup } from '@/constants/transaction'; 
 import { useAuth } from "@/context/AuthProvider";
 import { useUI } from "@/context/UIProvider";
 
-// 🚀 [수정 2] Item 인터페이스 로컬 정의 (타입 에러 방지)
+// 🚀 [수정] Item 인터페이스 로컬 정의
 interface Item {
   item_key: string;
   item_name: string;
   remark?: string;
   active_flag: string;
-  item_type?: string; // DB 컬럼 매핑
-  uom?: string;       // DB 컬럼 매핑
+  item_type?: string; 
+  uom?: string;       
 }
 
 export default function NewInboundPage() {
@@ -58,19 +58,16 @@ export default function NewInboundPage() {
     }
   }, [inboundType]);
 
-  // 🚀 [수정 3] 스마트 검색 로직 (띄어쓰기 = AND 조건)
+  // 🚀 [수정] 스마트 검색 로직
   const filteredItems = useMemo(() => {
     if (!searchTerm.trim()) return [];
 
-    const terms = searchTerm.toLowerCase().split(/\s+/).filter(Boolean); // 검색어 공백 분리
+    const terms = searchTerm.toLowerCase().split(/\s+/).filter(Boolean); 
 
     return allItems.filter(item => {
-        // 검색 대상 텍스트 결합 (품목명 + 코드 + 타입)
         const targetText = `${item.item_name} ${item.item_key} ${item.item_type || ''}`.toLowerCase();
-        
-        // 입력한 모든 단어가 targetText에 포함되어야 함 (AND 조건)
         return terms.every(term => targetText.includes(term));
-    }).slice(0, 10); // 최대 10개만 표시
+    }).slice(0, 10); 
   }, [searchTerm, allItems]);
 
   const addItem = (item: Item) => {
@@ -80,7 +77,6 @@ export default function NewInboundPage() {
         setShowDropdown(false);
         return;
     }
-    // 추가 시 기본 수량 1
     setSelectedItems([...selectedItems, { item, qty: 1 }]);
     setSearchTerm("");
     setShowDropdown(false);
@@ -264,7 +260,6 @@ export default function NewInboundPage() {
                                                 <div className="font-bold text-white group-hover:text-blue-400 transition">{item.item_name}</div>
                                                 <div className="text-xs text-gray-500 flex gap-2">
                                                     <span className="bg-gray-900 px-1 rounded">{item.item_key}</span>
-                                                    {/* item_type 표시 */}
                                                     {item.item_type && <span className="bg-gray-800 px-1 rounded">{item.item_type}</span>}
                                                 </div>
                                             </div>
@@ -275,7 +270,7 @@ export default function NewInboundPage() {
                                     ))
                                 )}
                             </div>
-                            {/* 백드롭 (외부 클릭 시 닫기) */}
+                            {/* 백드롭 */}
                             <div className="fixed inset-0 z-10" onClick={() => setShowDropdown(false)}></div>
                         </>
                     )}
@@ -312,7 +307,7 @@ export default function NewInboundPage() {
                                     </div>
                                 </div>
                                 
-                                {/* 수량 조절기 (모바일 친화적) */}
+                                {/* 수량 조절기 */}
                                 <div className="flex items-center gap-3 bg-gray-900 rounded-lg p-1 border border-gray-800 shrink-0">
                                     <button 
                                         onClick={() => adjustQty(idx, -1)}

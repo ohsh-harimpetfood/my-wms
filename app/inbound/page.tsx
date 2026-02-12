@@ -4,9 +4,11 @@ import { createClient } from "@/utils/supabase/client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Trash2, Calendar, List, Truck, Plus, ChevronLeft, ChevronRight } from "lucide-react"; 
+import { useUI } from "@/context/UIProvider"; // 🚀 UIProvider Import
 
 export default function InboundPage() {
   const supabase = createClient();
+  const { confirm, alert, toast } = useUI(); // 🚀 Hook 사용
   
   // 상태 관리
   const [inbounds, setInbounds] = useState<any[]>([]);
@@ -38,20 +40,27 @@ export default function InboundPage() {
     fetchInbounds();
   }, []);
 
+  // 🚀 [수정] 삭제 핸들러
   const handleDelete = async (inboundNo: string, status: string) => {
     if (status !== 'PENDING') {
-      alert("진행 중인 건은 삭제할 수 없습니다.");
+      await alert("진행 중인 건은 삭제할 수 없습니다.", "warning");
       return;
     }
-    if (!confirm("정말 삭제하시겠습니까?")) return;
+    
+    // 🔴 [수정 포인트] "danger" -> "warning" 으로 변경
+    // (UIProvider에 정의된 타입만 사용할 수 있습니다)
+    const isConfirmed = await confirm("정말 삭제하시겠습니까?", "warning");
+    
+    if (!isConfirmed) return;
 
     try {
       await supabase.from("inbound_detail").delete().eq("inbound_no", inboundNo);
       await supabase.from("inbound_master").delete().eq("inbound_no", inboundNo);
-      alert("삭제되었습니다.");
+      
+      await toast.success("삭제되었습니다."); // 성공 시 토스트 메시지
       fetchInbounds(); 
     } catch (e: any) {
-      alert("오류: " + e.message);
+      await toast.error("오류: " + e.message); // 실패 시 토스트 메시지
     }
   };
 
@@ -66,7 +75,6 @@ export default function InboundPage() {
   };
 
   return (
-    // 🚀 [수정] overflow-x-hidden으로 가로 스크롤 방지
     <div className="p-4 md:p-8 bg-black min-h-screen text-white font-[family-name:var(--font-geist-sans)] pb-24 overflow-x-hidden">
       
       <div className="max-w-3xl mx-auto space-y-6 w-full">
@@ -152,7 +160,7 @@ export default function InboundPage() {
         </div>
 
         {/* 📋 리스트 카드 영역 */}
-        <div className="grid gap-3 w-full min-w-0"> {/* Grid 자체에도 min-w-0 추가 */}
+        <div className="grid gap-3 w-full min-w-0">
             {loading ? (
                 <div className="text-center py-10 text-gray-500 flex flex-col items-center gap-2">
                     <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -164,13 +172,10 @@ export default function InboundPage() {
                 </div>
             ) : (
                 filteredInbounds.map((ib) => (
-                    // 🚀 [핵심 수정 1] min-w-0 추가: 그리드 아이템이 컨텐츠보다 작아질 수 있게 허용 (밀림 해결)
                     <Link key={ib.inbound_no} href={`/inbound/${ib.inbound_no}`} className="block w-full min-w-0 group relative">
                         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col hover:border-blue-500 hover:bg-gray-900/80 transition active:scale-[0.99] w-full box-border">
                             
-                            {/* 상단 행: 번호+날짜(좌측) / 배지+삭제버튼(우측) */}
                             <div className="flex justify-between items-start mb-3">
-                                {/* 좌측 정보: min-w-0으로 줄임표 허용 */}
                                 <div className="flex flex-col gap-0.5 min-w-0 flex-1 pr-2">
                                     <span className="text-blue-400 font-bold text-xs md:text-sm font-mono tracking-tight truncate">
                                         {ib.inbound_no}
@@ -178,7 +183,6 @@ export default function InboundPage() {
                                     <span className="text-gray-500 text-[10px] md:text-xs truncate">{ib.plan_date}</span>
                                 </div>
                                 
-                                {/* 🚀 [핵심 수정 2] 삭제 버튼을 flex 흐름 안으로 이동 (겹침 원천 차단) */}
                                 <div className="flex items-center gap-2 shrink-0 ml-1">
                                     <StatusBadge status={ib.status} />
                                     {ib.status === 'PENDING' && (
@@ -188,8 +192,7 @@ export default function InboundPage() {
                                                 e.stopPropagation(); 
                                                 handleDelete(ib.inbound_no, ib.status);
                                             }}
-                                            // p-2로 터치 영역 확보하되 버튼 크기는 작게 유지
-                                            className="p-1.5 text-gray-500 hover:text-red-500 hover:bg-red-900/20 rounded-md transition"
+                                            className="p-1.5 text-gray-500 hover:text-red-500 hover:bg-red-900/20 rounded-md transition z-10 -mr-1"
                                             title="삭제"
                                         >
                                             <Trash2 size={18} />
@@ -198,7 +201,6 @@ export default function InboundPage() {
                                 </div>
                             </div>
 
-                            {/* 중간 행: 공급처 */}
                             <div className="flex items-center gap-2 mb-3 w-full">
                                 <div className="w-1 h-8 bg-gray-700 rounded-full shrink-0"></div>
                                 <div className="flex-1 min-w-0"> 
@@ -207,11 +209,9 @@ export default function InboundPage() {
                                 </div>
                             </div>
 
-                            {/* 하단 행: 품목 요약 */}
                             <div className="bg-black/40 rounded-lg p-2.5 border border-gray-800 flex items-start gap-2 w-full">
                                 <Truck size={14} className="text-gray-500 mt-0.5 shrink-0"/>
-                                {/* 🚀 [핵심 수정 3] span -> div 변경 및 truncate 적용으로 긴 텍스트 잘림 처리 */}
-                                <div className="text-gray-300 text-xs md:text-sm truncate flex-1 min-w-0">
+                                <div className="text-gray-300 text-xs md:text-sm truncate flex-1 min-w-0 leading-snug">
                                     {formatItemsSummary(ib.details)}
                                 </div>
                             </div>
@@ -227,9 +227,7 @@ export default function InboundPage() {
   );
 }
 
-// ------------------------------------------------------------------
-// 컴포넌트: 캘린더 & 뱃지
-// ------------------------------------------------------------------
+// ... (이하 CalendarComponent, StatusBadge 등은 기존과 동일)
 interface CalendarProps {
   currentDate: Date;
   setCurrentDate: (date: Date) => void;

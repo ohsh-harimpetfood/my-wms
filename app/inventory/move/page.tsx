@@ -3,18 +3,19 @@
 import { createClient } from "@/utils/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
-import { ArrowLeft, ArrowRight, MapPin, Search, CheckCircle } from "lucide-react";
-import LocationSelectorModal from "@/components/LocationSelectorModal";
+import { ArrowLeft, ArrowRight, MapPin, Search, CheckCircle, Package, Box } from "lucide-react";
+// 🚀 [수정] 맵 기반 셀렉터 적용
+import LocationMapSelector from "@/components/LocationMapSelector";
 import { TX_TYPES, TxCode } from "@/constants/transaction";
 import { useAuth } from "@/context/AuthProvider"; 
-import { useUI } from "@/context/UIProvider"; // 🚀 UIProvider
+import { useUI } from "@/context/UIProvider"; 
 
 export default function InventoryMovePage() {
   const router = useRouter();
   const supabase = createClient();
   const searchParams = useSearchParams();
   const { user } = useAuth();
-  const { toast, confirm } = useUI(); // 🚀 Toast & Confirm
+  const { toast, confirm } = useUI(); 
 
   // URL 파라미터 (Source 정보)
   const sourceId = searchParams.get("id"); 
@@ -187,21 +188,29 @@ export default function InventoryMovePage() {
         <div className="flex-1 w-full bg-gray-900 border border-gray-800 rounded-xl p-6 opacity-80">
             <h2 className="text-lg font-bold text-gray-400 mb-4 flex items-center gap-2">📤 보내는 곳 (From)</h2>
             <div className="space-y-4">
-                <div className="bg-black p-4 rounded-lg border border-gray-800 shadow-inner">
-                    <div className="text-sm text-gray-500 mb-1 font-bold">현재 위치</div>
-                    <div className="text-2xl font-bold text-white font-mono">{sourceLoc}</div>
-                </div>
-                <div>
-                    <div className="text-sm text-gray-500 mb-1 font-bold">이동할 품목</div>
-                    <div className="text-lg font-bold text-white">{itemName}</div>
-                    <div className="text-sm text-gray-500">{itemKey}</div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="bg-black p-4 rounded-lg border border-gray-800 shadow-inner flex items-center gap-3">
+                    <div className="p-2 bg-gray-800 rounded-full text-gray-400"><MapPin size={20}/></div>
                     <div>
-                        <div className="text-sm text-gray-500 mb-1 font-bold">LOT 번호</div>
-                        <div className="text-white font-mono bg-gray-800 px-2 py-1 rounded text-center">{lotNo || '-'}</div>
+                        <div className="text-sm text-gray-500 font-bold">현재 위치</div>
+                        <div className="text-2xl font-bold text-white font-mono">{sourceLoc}</div>
                     </div>
+                </div>
+                
+                <div className="flex items-start gap-3 p-3 border border-gray-800 rounded-lg">
+                    <Package className="text-gray-600 mt-1" size={20}/>
                     <div>
+                        <div className="text-sm text-gray-500 font-bold mb-0.5">이동할 품목</div>
+                        <div className="text-lg font-bold text-white leading-tight">{itemName}</div>
+                        <div className="text-sm text-gray-500 font-mono mt-1">{itemKey}</div>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="p-3 border border-gray-800 rounded-lg">
+                        <div className="text-sm text-gray-500 mb-1 font-bold flex items-center gap-1"><Box size={14}/> LOT 번호</div>
+                        <div className="text-white font-mono bg-gray-800 px-2 py-1 rounded text-center text-sm">{lotNo || '-'}</div>
+                    </div>
+                    <div className="p-3 border border-gray-800 rounded-lg text-right">
                         <div className="text-sm text-gray-500 mb-1 font-bold">현재고</div>
                         <div className="text-blue-400 font-bold text-xl">{maxQty.toLocaleString()}</div>
                     </div>
@@ -244,11 +253,11 @@ export default function InventoryMovePage() {
                             value={moveQty} 
                             onChange={handleQtyChange} 
                             placeholder="0" 
-                            className="w-full bg-black border border-gray-700 rounded-lg p-4 text-right text-white font-bold text-3xl outline-none focus:border-blue-500 h-16" 
+                            className="w-full bg-black border border-gray-700 rounded-lg p-4 text-right text-white font-bold text-3xl outline-none focus:border-blue-500 h-16 placeholder-gray-800" 
                         />
                         <button 
                             onClick={setMaxMoveQty}
-                            className="absolute left-2 top-1/2 -translate-y-1/2 bg-gray-800 hover:bg-gray-700 text-xs px-2 py-1 rounded text-gray-300 transition"
+                            className="absolute left-3 top-1/2 -translate-y-1/2 bg-gray-800 hover:bg-gray-700 text-xs px-2 py-1 rounded text-gray-300 transition border border-gray-700"
                         >
                             전체
                         </button>
@@ -259,16 +268,17 @@ export default function InventoryMovePage() {
                 <button 
                     onClick={handleMove} 
                     disabled={loading} 
-                    className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-lg shadow-blue-900/20 transition disabled:opacity-50 mt-2 active:scale-[0.98] text-lg"
+                    className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-lg shadow-blue-900/20 transition disabled:opacity-50 mt-2 active:scale-[0.98] text-lg flex items-center justify-center gap-2"
                 >
-                    {loading ? "이동 중..." : "재고 이동 실행 (MOVE)"}
+                    {loading ? "이동 중..." : <><CheckCircle size={20}/> 재고 이동 실행 (MOVE)</>}
                 </button>
             </div>
         </div>
       </div>
 
       {showLocModal && (
-        <LocationSelectorModal 
+        // 🚀 [수정] 맵 기반 셀렉터 적용
+        <LocationMapSelector 
             onClose={() => setShowLocModal(false)}
             onSelect={(locId) => { setTargetLoc(locId); setShowLocModal(false); }}
         />

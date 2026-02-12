@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, RotateCcw, Calendar, Filter, Box } from "lucide-react";
+import { Search, RotateCcw, Calendar, Filter } from "lucide-react";
 
 export default function HistorySearchForm() {
   const router = useRouter();
@@ -47,12 +47,12 @@ export default function HistorySearchForm() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto mt-10 p-6 bg-gray-900 border border-gray-800 rounded-xl shadow-2xl animate-fade-in">
-      <div className="flex items-center gap-3 mb-8 border-b border-gray-800 pb-4">
-        <Filter className="text-blue-500" size={32} />
+    <div className="max-w-4xl mx-auto mt-4 md:mt-10 p-4 md:p-6 bg-gray-900 border border-gray-800 rounded-xl shadow-2xl animate-fade-in">
+      <div className="flex items-center gap-3 mb-6 md:mb-8 border-b border-gray-800 pb-4">
+        <Filter className="text-blue-500" size={28} />
         <div>
-          <h1 className="text-2xl font-bold text-white">수불 이력 조회 (Transaction History)</h1>
-          <p className="text-gray-400 text-sm">조회 조건을 설정하고 실행 버튼을 눌러주세요.</p>
+          <h1 className="text-xl md:text-2xl font-bold text-white">수불 이력 조회</h1>
+          <p className="text-gray-400 text-xs md:text-sm">조회 조건을 설정하고 실행 버튼을 눌러주세요.</p>
         </div>
       </div>
 
@@ -63,33 +63,31 @@ export default function HistorySearchForm() {
           <label className="block text-sm font-bold text-gray-300 mb-2 flex items-center gap-2">
             <Calendar size={16} /> 조회 기간 (Date Range)
           </label>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col md:flex-row items-center gap-2 md:gap-4">
             <input 
               type="date" 
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              // ✨ [수정] 아이콘 색상 반전 클래스 추가 ([&::-webkit...]:invert)
-              className="bg-black border border-gray-700 text-white rounded-lg px-4 py-3 w-full focus:ring-2 focus:ring-blue-500 outline-none [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert"
+              className="bg-black border border-gray-700 text-white rounded-lg px-4 py-3 w-full focus:ring-2 focus:ring-blue-500 outline-none [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert h-12"
             />
-            <span className="text-gray-500">~</span>
+            <span className="text-gray-500 transform rotate-90 md:rotate-0">~</span>
             <input 
               type="date" 
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              // ✨ [수정] 아이콘 색상 반전 클래스 추가
-              className="bg-black border border-gray-700 text-white rounded-lg px-4 py-3 w-full focus:ring-2 focus:ring-blue-500 outline-none [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert"
+              className="bg-black border border-gray-700 text-white rounded-lg px-4 py-3 w-full focus:ring-2 focus:ring-blue-500 outline-none [&::-webkit-calendar-picker-indicator]:filter [&::-webkit-calendar-picker-indicator]:invert h-12"
             />
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
           {/* 입출고 구분 */}
           <div>
             <label className="block text-sm font-bold text-gray-300 mb-2">입출고 구분 (Type)</label>
             <select 
               value={txType}
               onChange={(e) => setTxType(e.target.value)}
-              className="w-full bg-black border border-gray-700 text-white rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none appearance-none"
+              className="w-full bg-black border border-gray-700 text-white rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none appearance-none h-12"
             >
               <option value="ALL">전체 (All Transactions)</option>
               <option value="INBOUND">입고 (Inbound)</option>
@@ -108,16 +106,16 @@ export default function HistorySearchForm() {
               onChange={(e) => setKeyword(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
               placeholder="품목명, 코드, 위치, 비고 등"
-              className="w-full bg-black border border-gray-700 text-white rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-gray-600"
+              className="w-full bg-black border border-gray-700 text-white rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-gray-600 h-12"
             />
           </div>
         </div>
 
-        {/* 버튼 */}
-        <div className="pt-4 flex gap-3 justify-end">
+        {/* 버튼 영역 (모바일: 세로, PC: 가로) */}
+        <div className="pt-4 flex flex-col md:flex-row gap-3 justify-end">
           <button 
             onClick={handleReset}
-            className="px-6 py-3 rounded-lg bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white transition font-bold flex items-center gap-2"
+            className="w-full md:w-auto px-6 py-3 rounded-lg bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white transition font-bold flex items-center justify-center gap-2 h-14 md:h-auto"
           >
             <RotateCcw size={18} /> 초기화
           </button>
@@ -125,10 +123,10 @@ export default function HistorySearchForm() {
           <button
             onClick={handleSearch}
             disabled={loading}
-            className="px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold shadow-lg shadow-blue-900/30 transition-all flex items-center gap-2 disabled:opacity-50"
+            className="w-full md:w-auto px-8 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold shadow-lg shadow-blue-900/30 transition-all flex items-center justify-center gap-2 disabled:opacity-50 h-14 md:h-auto text-lg"
           >
             {loading ? <span className="animate-spin">⟳</span> : <Search size={20} />}
-            조회 (Execute)
+            조회 실행 (Execute)
           </button>
         </div>
 

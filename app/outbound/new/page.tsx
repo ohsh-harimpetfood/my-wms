@@ -144,7 +144,7 @@ function OutboundForm() {
       <div className="w-full max-w-2xl animate-fade-in">
         
         {/* 헤더 */}
-        <div className="flex items-center gap-4 mb-6 border-b border-gray-800 pb-4">
+        <div className="flex items-center gap-4 mb-6 border-b border-gray-800 pb-4 sticky top-0 bg-black/90 backdrop-blur-sm z-30 pt-2">
             <button onClick={() => router.back()} className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition"><ArrowLeft /></button>
             <h1 className="text-xl md:text-2xl font-bold text-red-500 flex items-center gap-2">
                 <AlertTriangle className="animate-pulse" /> 

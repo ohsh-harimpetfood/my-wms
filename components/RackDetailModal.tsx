@@ -22,7 +22,7 @@ interface Props {
 
 // ----------------------------------------------------------------------
 // 📦 [분리됨] CellBox 컴포넌트
-// - 내부 정의에서 외부로 분리하여 렌더링 성능 최적화 및 Key 에러 방지
+// - 모바일 최적화: w/h 및 폰트 사이즈 반응형 적용 (md: 접두사 활용)
 // ----------------------------------------------------------------------
 interface CellBoxProps {
   data?: LocationData;
@@ -66,7 +66,7 @@ const CellBox = ({
       cellClass = "bg-gray-800 border-gray-700 text-gray-500 hover:border-green-500 hover:bg-gray-800 group";
   }
   
-  if (!data) return <div className="w-28 h-24 border border-transparent"></div>;
+  if (!data) return <div className="w-20 h-16 md:w-28 md:h-24 border border-transparent"></div>;
 
   return (
     <div 
@@ -77,8 +77,9 @@ const CellBox = ({
             if (totalQty > 0) onInventoryClick(data.loc_id);
             else onEmptyClick(col, lvl, side);
         }}
+        // 🚀 [수정] 모바일: w-20 h-16 / PC: w-28 h-24
         className={`
-            w-28 h-24 border rounded-lg p-2 flex flex-col justify-between 
+            w-20 h-16 md:w-28 md:h-24 border rounded-lg p-1.5 md:p-2 flex flex-col justify-between 
             transition-all duration-150 cursor-pointer 
             relative 
             ${isHovered ? 'z-[100]' : 'z-0'}
@@ -86,42 +87,44 @@ const CellBox = ({
         `}
     >
         <div className="flex justify-between items-start w-full">
-            <div className="text-[10px] font-mono opacity-60 truncate max-w-[70%]">{data.loc_id}</div>
+            {/* 🚀 [수정] 폰트 사이즈 축소 */}
+            <div className="text-[8px] md:text-[10px] font-mono opacity-60 truncate max-w-[70%]">{data.loc_id}</div>
             {!isEmpty && (
                 isMixed 
-                    ? <Layers size={12} className="text-orange-500 animate-pulse" />
-                    : <Package size={12} className="text-purple-400" />
+                    ? <Layers size={10} className="text-orange-500 animate-pulse md:w-3 md:h-3" /> // 아이콘 크기 조정
+                    : <Package size={10} className="text-purple-400 md:w-3 md:h-3" />
             )}
         </div>
 
         <div className="flex-1 flex flex-col items-center justify-center w-full">
             {totalQty > 0 ? (
                 <>
-                    <div className={`font-bold text-lg leading-none ${textClass}`}>
+                    {/* 🚀 [수정] 수량 폰트 사이즈 축소 */}
+                    <div className={`font-bold text-sm md:text-lg leading-none ${textClass}`}>
                         {totalQty.toLocaleString()}
                     </div>
                     {isMixed ? (
-                        <div className="flex items-center gap-1 mt-1 text-orange-400 font-bold text-[10px]">
-                            <AlertTriangle size={10} />
-                            <span>{itemCount}종 혼적</span>
+                        <div className="flex items-center gap-0.5 md:gap-1 mt-0.5 md:mt-1 text-orange-400 font-bold text-[8px] md:text-[10px]">
+                            <AlertTriangle size={8} className="md:w-[10px] md:h-[10px]" />
+                            <span>{itemCount}종</span>
                         </div>
                     ) : (
-                        <div className="text-[9px] truncate w-full text-center opacity-80 mt-1 px-1">
+                        <div className="text-[8px] md:text-[9px] truncate w-full text-center opacity-80 mt-0.5 md:mt-1 px-0.5">
                             {primaryItemName}
                         </div>
                     )}
                 </>
             ) : (
-                <div className="text-gray-600 text-xs flex flex-col items-center gap-1 opacity-50 group-hover:opacity-100 group-hover:text-green-400 transition-all">
-                        <span className="font-bold text-lg">+</span>
-                        <span className="text-[10px]">Empty</span>
+                <div className="text-gray-600 text-[10px] md:text-xs flex flex-col items-center gap-0.5 opacity-50 group-hover:opacity-100 group-hover:text-green-400 transition-all">
+                        <span className="font-bold text-sm md:text-lg">+</span>
+                        <span className="text-[8px] md:text-[10px] scale-75 md:scale-100">Empty</span>
                 </div>
             )}
         </div>
 
-        {/* 툴팁 */}
+        {/* 툴팁 (PC에서만 주로 동작하지만 코드 유지) */}
         {isMixed && isHovered && (
-            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-64 z-[200] pointer-events-none animate-fade-in-fast">
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-56 md:w-64 z-[200] pointer-events-none animate-fade-in-fast">
                     <div className="bg-gray-950 border border-orange-500 rounded-xl p-3 shadow-[0_0_50px_rgba(0,0,0,0.9)] text-[10px] text-left relative">
                     <div className="font-bold text-orange-400 mb-2 pb-2 border-b border-gray-800 flex justify-between items-center">
                         <span>⚠️ 혼합 적재 ({itemCount}종)</span>
@@ -182,12 +185,10 @@ export default function RackDetailModal({ rackName, locations, onClose }: Props)
       return locations?.find(l => l.rack_no === col && Number(l.level_no) === lvl && l.side === side);
   };
 
-  // 재고 클릭 시 이동 (공유해주신 코드대로 search=true 포함됨)
   const handleInventoryClick = (locId: string) => { 
       router.push(`/inventory?search=true&query=${locId}`); 
   };
 
-  // 빈 셀 클릭 처리
   const handleEmptyCellClick = (col: string, lvl: number, side: string) => {
       const existingLoc = findLoc(col, lvl, side);
       
@@ -208,52 +209,56 @@ export default function RackDetailModal({ rackName, locations, onClose }: Props)
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-fade-in">
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-[95vw] max-h-[95vh] flex flex-col shadow-2xl overflow-hidden relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-2 md:p-4 animate-fade-in">
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-[98vw] md:max-w-[95vw] max-h-[95vh] flex flex-col shadow-2xl overflow-hidden relative">
         
         {/* 헤더 */}
-        <div className="flex justify-between items-center p-6 border-b border-gray-800 bg-black/40 shrink-0">
-          <div className="flex items-center gap-6">
+        <div className="flex justify-between items-center p-4 md:p-6 border-b border-gray-800 bg-black/40 shrink-0">
+          <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-6">
             <div>
-                <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-                <span className="bg-purple-600 px-3 py-1 rounded text-lg">Rack {rackName}</span>
+                <h2 className="text-xl md:text-2xl font-bold text-white flex items-center gap-2 md:gap-3">
+                <span className="bg-purple-600 px-2 py-0.5 md:px-3 md:py-1 rounded text-base md:text-lg">Rack {rackName}</span>
                 </h2>
-                <p className="text-gray-500 text-xs mt-1">
+                <p className="text-gray-500 text-[10px] md:text-xs mt-1">
                 총 {locations.length}개 셀 / {columns.length}열 x {levels.length}단
                 </p>
             </div>
             {rackType === 'DOUBLE' && (
-                <div className="flex bg-gray-800 p-1 rounded-lg border border-gray-700">
-                    <button onClick={() => setCurrentSide('1')} className={`px-4 py-1.5 rounded text-xs font-bold transition-all ${currentSide === '1' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>Side 1</button>
-                    <button onClick={() => setCurrentSide('2')} className={`px-4 py-1.5 rounded text-xs font-bold transition-all ${currentSide === '2' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>Side 2</button>
+                <div className="flex bg-gray-800 p-1 rounded-lg border border-gray-700 self-start md:self-auto">
+                    <button onClick={() => setCurrentSide('1')} className={`px-3 py-1 md:px-4 md:py-1.5 rounded text-[10px] md:text-xs font-bold transition-all ${currentSide === '1' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>Side 1</button>
+                    <button onClick={() => setCurrentSide('2')} className={`px-3 py-1 md:px-4 md:py-1.5 rounded text-[10px] md:text-xs font-bold transition-all ${currentSide === '2' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>Side 2</button>
                 </div>
             )}
           </div>
-          <button onClick={onClose} className="p-3 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition"><X size={24}/></button>
+          <button onClick={onClose} className="p-2 md:p-3 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition"><X size={20} className="md:w-6 md:h-6"/></button>
         </div>
 
         {/* 본문 */}
-        <div className="flex-1 overflow-auto p-8 custom-scrollbar bg-[#0a0a0a]">
+        <div className="flex-1 overflow-auto p-4 md:p-8 custom-scrollbar bg-[#0a0a0a]">
           <div className="min-w-max mx-auto">
             {locations.length > 0 ? (
                 <>
                     {/* 열 헤더 */}
-                    <div className="flex gap-4 mb-2 pl-12">
-                        {columns.map(col => (<div key={col} className="w-28 text-center text-gray-500 font-bold text-sm bg-gray-900/50 py-1 rounded border border-gray-800">{col}열</div>))}
+                    <div className="flex gap-2 md:gap-4 mb-2 pl-8 md:pl-12">
+                        {columns.map(col => (
+                            // 🚀 [수정] 헤더 너비도 셀 너비에 맞춤 (w-20 / w-28)
+                            <div key={col} className="w-20 md:w-28 text-center text-gray-500 font-bold text-xs md:text-sm bg-gray-900/50 py-1 rounded border border-gray-800">{col}열</div>
+                        ))}
                     </div>
                     
                     {/* 층별 렌더링 */}
-                    <div className="flex flex-col gap-4">
+                    {/* 🚀 [수정] 층 간격 축소 (gap-2 / gap-4) */}
+                    <div className="flex flex-col gap-2 md:gap-4">
                     {levels.map(lvl => (
-                        <div key={lvl} className="flex gap-4">
+                        <div key={lvl} className="flex gap-2 md:gap-4">
                             {/* 단 헤더 */}
-                            <div className="w-12 flex-shrink-0 flex items-center justify-center font-bold text-gray-600 bg-gray-900/30 rounded border border-gray-800">{lvl}단</div>
-                            {/* 셀 렌더링 (외부 CellBox 호출) */}
+                            <div className="w-8 md:w-12 flex-shrink-0 flex items-center justify-center font-bold text-gray-600 bg-gray-900/30 rounded border border-gray-800 text-xs md:text-base">{lvl}단</div>
+                            {/* 셀 렌더링 */}
                             {columns.map(col => {
                                 const targetData = findLoc(col, lvl, currentSide);
                                 return (
                                     <CellBox 
-                                        key={`${col}-${lvl}`} // Key를 여기에 부여
+                                        key={`${col}-${lvl}`} 
                                         data={targetData} 
                                         col={col} 
                                         lvl={lvl} 
@@ -280,8 +285,8 @@ export default function RackDetailModal({ rackName, locations, onClose }: Props)
         
         {/* 입고 확인 팝업 */}
         {confirmInfo && (
-            <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
-                <div className="bg-gray-800 border border-gray-600 p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4 text-center">
+            <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in px-4">
+                <div className="bg-gray-800 border border-gray-600 p-6 rounded-xl shadow-2xl max-w-sm w-full text-center">
                     <div className="flex justify-center mb-4 text-yellow-500"><AlertTriangle size={48} /></div>
                     <h3 className="text-xl font-bold text-white mb-2">입고 등록 하시겠습니까?</h3>
                     <p className="text-gray-400 text-sm mb-6">

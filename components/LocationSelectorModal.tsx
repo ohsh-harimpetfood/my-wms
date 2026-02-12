@@ -80,7 +80,7 @@ export default function LocationSelectorModal({ onClose, onSelect }: Props) {
 
   const handleRack = (r: string) => { 
       setSelectedRack(r);
-      // ✨ [수정] 랙 선택 시 Side 1번 자동 선택 (Default)
+      // ✨ [UX 개선] 랙 선택 시 Side 1번 자동 선택 (Default) -> 클릭 수 단축
       setSelectedSide("1"); 
   };
   
@@ -154,7 +154,7 @@ export default function LocationSelectorModal({ onClose, onSelect }: Props) {
             </div>
           </div>
 
-          {/* [4단계] 최종 위치 (Level) - ✨ 1줄 1카드 레이아웃 */}
+          {/* [4단계] 최종 위치 (Level) - ✨ 1줄 1카드 레이아웃 개선 */}
           <div className="flex-1 bg-black flex flex-col">
             <div className="p-4 border-b border-gray-800 bg-[#161616] flex justify-between items-center">
               <div className="text-xs font-black text-gray-400 uppercase tracking-widest">4. Final Location (최종 선택)</div>
@@ -171,7 +171,7 @@ export default function LocationSelectorModal({ onClose, onSelect }: Props) {
                    <p className="text-lg">좌측에서 선택을 진행해주세요.</p>
                  </div>
                ) : (
-                 // ✨ [수정] grid-cols-1로 변경하여 한 줄에 하나씩 배치
+                 // ✨ [수정] grid-cols-1로 변경하여 한 줄에 하나씩 배치 (가독성 UP)
                  <div className="grid grid-cols-1 gap-3">
                    {finalCells.map(loc => {
                      const qty = loc.inventory?.reduce((acc: number, cur: any) => acc + cur.quantity, 0) || 0;
@@ -179,7 +179,6 @@ export default function LocationSelectorModal({ onClose, onSelect }: Props) {
                        <button 
                          key={loc.loc_id} 
                          onClick={() => onSelect(loc.loc_id)} 
-                         // ✨ 카드 높이 및 패딩 조정
                          className="flex items-center justify-between p-5 bg-[#1a1a1a] border border-gray-800 rounded-xl hover:border-blue-500 hover:bg-blue-600/10 transition-all group relative overflow-hidden text-left"
                        >
                          {/* 좌측: Loc ID (가장 크게) */}

@@ -1,9 +1,10 @@
 import { createClient } from "@/utils/supabase/server";
-import { ArrowLeft, LogIn, LogOut, FileText, Calendar, Box, MapPin, RefreshCw, User } from "lucide-react";
+import { ArrowLeft, LogIn, LogOut, FileText, Calendar, Box, MapPin, RefreshCw, User, MoreHorizontal } from "lucide-react"; 
 import Link from "next/link";
 import HistorySearchForm from "@/components/HistorySearchForm"; 
 import PaginationControls from "@/components/PaginationControls"; 
 import { TX_TYPES, TxCode } from "@/constants/transaction";
+import HistoryFilterBar from "@/components/HistoryFilterBar"; 
 
 export const dynamic = 'force-dynamic';
 
@@ -41,14 +42,10 @@ export default async function HistoryPage({
     return <HistorySearchForm />;
   }
 
-  // ==============================================================================
-  // 2. 데이터 조회 및 필터링
-  // ==============================================================================
-  
+  // 2. 데이터 조회
   const page = params.page ? Number(params.page) : 1;
   const ITEMS_PER_PAGE = 20;
 
-  // 쿼리 작성 (profiles 조인 포함)
   let query = supabase
     .from("stock_tx")
     .select(`
@@ -58,7 +55,7 @@ export default async function HistoryPage({
     `)
     .order("transaction_date", { ascending: false });
 
-  // [필터링]
+  // [DB 필터링]
   if (params.startDate) query = query.gte("transaction_date", `${params.startDate}T00:00:00`);
   if (params.endDate) query = query.lte("transaction_date", `${params.endDate}T23:59:59`);
   
@@ -77,7 +74,7 @@ export default async function HistoryPage({
 
   let transactions = rawData as unknown as Transaction[];
 
-  // [메모리 필터링] 키워드
+  // [메모리 필터링] 결과 내 검색
   if (params.keyword) {
     const terms = String(params.keyword).toLowerCase().split(/\s+/).filter(Boolean);
     transactions = transactions.filter(tx => {
@@ -93,7 +90,6 @@ export default async function HistoryPage({
     });
   }
 
-  // 페이지네이션
   const totalCount = transactions.length;
   const startIdx = (page - 1) * ITEMS_PER_PAGE;
   const endIdx = startIdx + ITEMS_PER_PAGE;
@@ -109,25 +105,30 @@ export default async function HistoryPage({
   };
 
   return (
-    <div className="space-y-6 animate-fade-in pb-24 p-4 md:p-8 bg-black min-h-screen text-white">
+    <div className="space-y-6 animate-fade-in pb-32 p-4 md:p-8 bg-black min-h-screen text-white">
       
       {/* 헤더 */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-800 pb-4">
         <div className="flex items-center gap-3">
             <FileText className="text-yellow-500" size={32} />
             <div>
-            <h1 className="text-2xl font-bold text-white">조회 결과 (Result List)</h1>
-            <p className="text-gray-400 text-sm">
-                총 <span className="text-white font-bold">{totalCount.toLocaleString()}</span> 건이 조회되었습니다.
+            <h1 className="text-xl md:text-2xl font-bold text-white">조회 결과 (Result)</h1>
+            <p className="text-gray-400 text-xs md:text-sm">
+                총 <span className="text-white font-bold">{totalCount.toLocaleString()}</span> 건
             </p>
             </div>
         </div>
         <Link 
             href="/history" 
-            className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition text-sm font-bold border border-gray-700"
+            className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition text-sm font-bold border border-gray-700 w-full md:w-auto justify-center"
         >
             <ArrowLeft size={16} /> 조건 변경 (Back)
         </Link>
+      </div>
+
+      {/* 검색바 */}
+      <div className="w-full sticky top-0 z-20 bg-black/90 backdrop-blur pt-2 pb-4 -mt-2">
+          <HistoryFilterBar initialKeyword={String(params.keyword || "")} />
       </div>
 
       {/* 🖥️ PC 뷰 */}
@@ -156,14 +157,14 @@ export default async function HistoryPage({
         </div>
       </div>
 
-      {/* 📱 Mobile 뷰 */}
-      <div className="md:hidden flex flex-col gap-4">
+      {/* 📱 Mobile 뷰 (최적화됨) */}
+      <div className="md:hidden flex flex-col gap-3">
         {currentTransactions.map((tx) => (
             <MobileCard key={tx.id} tx={tx} formatDateTime={formatDateTime} />
         ))}
         {currentTransactions.length === 0 && (
-           <div className="py-20 text-center text-gray-500 border border-gray-800 rounded-lg bg-gray-900">
-             데이터가 없습니다.
+           <div className="py-20 text-center text-gray-500 border border-gray-800 rounded-lg bg-gray-900 text-sm">
+             조회된 데이터가 없습니다.
            </div>
         )}
       </div>
@@ -194,7 +195,7 @@ const getTxBadge = (txCode: string, ioType: string) => {
         }[typeInfo.color] || "bg-gray-800 text-gray-400 border-gray-700";
 
         return (
-            <span className={`px-2 py-1 rounded text-xs font-bold border flex items-center gap-1 w-fit ${colorClass}`}>
+            <span className={`px-2 py-1 rounded text-[11px] font-bold border flex items-center gap-1 w-fit whitespace-nowrap ${colorClass}`}>
                 {ioType === 'IN' ? <LogIn size={12}/> : ioType === 'OUT' ? <LogOut size={12}/> : <RefreshCw size={12}/>}
                 {typeInfo.label}
             </span>
@@ -202,7 +203,7 @@ const getTxBadge = (txCode: string, ioType: string) => {
     }
     const isPlus = ioType === 'IN';
     return (
-      <span className={`px-2 py-1 rounded text-xs font-bold border flex items-center gap-1 w-fit ${
+      <span className={`px-2 py-1 rounded text-[11px] font-bold border flex items-center gap-1 w-fit whitespace-nowrap ${
           isPlus ? "bg-blue-900/30 text-blue-400 border-blue-800" : "bg-red-900/30 text-red-400 border-red-800"
       }`}>
           {isPlus ? <LogIn size={12}/> : <LogOut size={12}/>}
@@ -234,7 +235,6 @@ const DesktopRow = ({ tx, formatDateTime }: { tx: Transaction, formatDateTime: (
                     <div className="flex items-center gap-1 text-gray-500 bg-gray-800/50 px-2 py-0.5 rounded w-fit">
                         <User size={10} />
                         <span>{tx.profiles.user_name}</span>
-                        <span className="text-[9px] text-gray-600">({tx.profiles.department})</span>
                     </div>
                 )}
             </td>
@@ -242,36 +242,60 @@ const DesktopRow = ({ tx, formatDateTime }: { tx: Transaction, formatDateTime: (
     );
 };
 
+// 📱 모바일 카드 디자인 최적화
 const MobileCard = ({ tx, formatDateTime }: { tx: Transaction, formatDateTime: (d:string)=>string }) => {
     return (
-        <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 shadow-md active:border-blue-500/50 transition-colors">
-            <div className="flex justify-between items-start mb-3 border-b border-gray-800 pb-2">
-                <div className="flex flex-col"><span className="text-xs text-gray-500 font-mono flex items-center gap-1"><Calendar size={10}/> {formatDateTime(tx.transaction_date)}</span></div>
-                <div className="flex flex-col items-end">
+        <div className="bg-[#111] border border-gray-800 rounded-xl p-4 shadow-sm relative overflow-hidden">
+            {/* 좌측 컬러 바 (입출고 구분) */}
+            <div className={`absolute left-0 top-0 bottom-0 w-1 ${tx.quantity > 0 ? 'bg-blue-500' : 'bg-red-500'}`}></div>
+            
+            <div className="pl-2">
+                {/* 상단: 날짜 & 배지 */}
+                <div className="flex justify-between items-start mb-2">
+                    <div className="text-xs text-gray-500 font-mono flex items-center gap-1">
+                        <Calendar size={11} className="text-gray-600"/> 
+                        {formatDateTime(tx.transaction_date)}
+                    </div>
                     {getTxBadge(tx.tx_code, tx.io_type)}
                 </div>
-            </div>
-            <div className="flex justify-between items-start mb-3">
-                <div className="flex-1">
-                    <div className="text-sm font-bold text-white mb-1 line-clamp-2">{tx.item_master?.item_name}</div>
-                    <div className="text-xs text-gray-500 flex items-center gap-1 mb-1"><Box size={10}/> {tx.item_key}</div>
-                    <div className="flex gap-2">
-                         <span className="bg-gray-800 px-1.5 py-0.5 rounded text-gray-400 text-[10px] border border-gray-700 flex items-center gap-1"><MapPin size={8}/> {tx.location_code}</span>
-                         {tx.lot_no && tx.lot_no !== 'DEFAULT' && (<span className="bg-gray-800 px-1.5 py-0.5 rounded text-gray-400 text-[10px] border border-gray-700">LOT: {tx.lot_no}</span>)}
+
+                {/* 중간: 품목 정보 & 수량 */}
+                <div className="flex justify-between items-start mb-3 gap-2">
+                    <div className="flex-1 min-w-0">
+                        <div className="text-sm font-bold text-white leading-tight mb-1 truncate">
+                            {tx.item_master?.item_name || '미상 품목'}
+                        </div>
+                        <div className="flex flex-wrap gap-2 items-center text-xs">
+                            <span className="text-gray-500 font-mono">{tx.item_key}</span>
+                            <span className="bg-gray-800 px-1.5 py-0.5 rounded text-gray-300 border border-gray-700 flex items-center gap-1 text-[11px]">
+                                <MapPin size={9}/> {tx.location_code}
+                            </span>
+                            {tx.lot_no && tx.lot_no !== 'DEFAULT' && (
+                                <span className="bg-gray-800 px-1.5 py-0.5 rounded text-gray-400 border border-gray-700 text-[11px]">
+                                    LOT: {tx.lot_no}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                    
+                    <div className={`text-lg font-bold whitespace-nowrap text-right ${tx.quantity > 0 ? 'text-blue-400' : 'text-red-400'}`}>
+                        {tx.quantity > 0 ? '+' : ''}{Number(tx.quantity).toLocaleString()}
+                        <div className="text-[10px] text-gray-600 font-normal">{tx.item_master?.uom || "EA"}</div>
                     </div>
                 </div>
-                <div className={`text-lg font-bold whitespace-nowrap ml-2 ${tx.quantity > 0 ? 'text-blue-400' : 'text-red-400'}`}>
-                    {tx.quantity > 0 ? '+' : ''}{Number(tx.quantity).toLocaleString()}
-                    <span className="text-xs text-gray-600 ml-1 font-normal">{tx.item_master?.uom || "EA"}</span>
-                </div>
-            </div>
-            <div className="flex justify-between items-center bg-gray-950/50 p-2 rounded">
-                <div className="text-xs text-gray-400 italic truncate flex-1 mr-2">"{tx.remark || '-'}"</div>
-                {tx.profiles && (
-                    <div className="flex items-center gap-1 text-[10px] text-gray-500 whitespace-nowrap">
-                        <User size={10} /> {tx.profiles.user_name}
+
+                {/* 하단: 비고 & 작업자 */}
+                <div className="flex justify-between items-center pt-2 border-t border-gray-800/50">
+                    <div className="text-xs text-gray-400 flex items-center gap-1 truncate flex-1 pr-2">
+                        <MoreHorizontal size={12} className="text-gray-600"/>
+                        <span className="truncate">{tx.remark || '-'}</span>
                     </div>
-                )}
+                    {tx.profiles && (
+                        <div className="flex items-center gap-1 text-[11px] text-gray-500 whitespace-nowrap bg-gray-900 px-2 py-0.5 rounded-full border border-gray-800">
+                            <User size={10} /> {tx.profiles.user_name}
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );
