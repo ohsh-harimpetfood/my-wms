@@ -4,10 +4,10 @@ import InventorySearchForm from "@/components/InventorySearchForm";
 import InventoryListClient from "@/components/InventoryListClient";
 import { getAllLocations, getAllItems, extractUniqueZones } from "@/utils/wms";
 import { Item } from "@/types";
-import { Box, MapPin, Package, ArrowRight, ArrowLeft } from "lucide-react"; // 아이콘 추가
-import Link from "next/link"; // 링크 추가
+import { Box, MapPin, Package, ArrowRight, ArrowLeft } from "lucide-react"; 
+import Link from "next/link"; 
 
-// 페이지 캐싱 방지 (재고는 실시간 데이터가 생명)
+// 페이지 캐싱 방지
 export const dynamic = 'force-dynamic';
 
 export interface InventoryItem {
@@ -42,16 +42,16 @@ export default async function InventoryPage({
     redirect("/login");
   }
 
-  // 📸 QR 스캔 모드 감지 (location 파라미터가 있는지 확인)
+  // 📸 QR 스캔 모드 감지
   const qrLocation = params.location ? String(params.location) : null;
 
   // =========================================================
   // [모드 1] QR 스캔 결과 뷰 (Location View)
   // =========================================================
   if (qrLocation) {
-    // 해당 로케이션의 재고만 조회 (stock_quant 테이블 사용 권장)
+    // 🚀 [수정] stock_quant -> inventory 로 원상 복구
     const { data: qrInventory, error: qrError } = await supabase
-        .from("stock_quant") 
+        .from("inventory") 
         .select(`
             *,
             item_master!inner (item_name, uom)
@@ -129,7 +129,7 @@ export default async function InventoryPage({
                         </div>
                     ))}
                     
-                    {/* 추가 입고 버튼 (재고가 있어도 더 넣을 수 있으므로 하단에 배치) */}
+                    {/* 추가 입고 버튼 */}
                     <div className="mt-8 pt-4 border-t border-gray-800 flex justify-center">
                          <Link 
                             href={`/inbound/direct?loc=${qrLocation}`}
@@ -149,7 +149,6 @@ export default async function InventoryPage({
   // [모드 2] 일반 검색 모드 (기존 로직 유지)
   // =========================================================
 
-  // 검색 파라미터가 없으면 검색 폼 보여주기
   if (params.search !== "true") {
     const [locations, items] = await Promise.all([
       getAllLocations(supabase),
@@ -160,7 +159,6 @@ export default async function InventoryPage({
     return <InventorySearchForm zones={zones} items={items as Item[]} />;
   }
 
-  // 검색 결과 리스트 로직
   const page = params.page ? Number(params.page) : 1;
   const rawQuery = params.query ? String(params.query) : "";
   const query = decodeURIComponent(rawQuery).trim();
@@ -168,8 +166,9 @@ export default async function InventoryPage({
   const zonesParam = params.zones ? String(params.zones) : ""; 
   const ITEMS_PER_PAGE = 20; 
 
+  // 🚀 [수정] stock_quant -> inventory 로 원상 복구
   let dbQuery = supabase
-    .from("stock_quant") // 재고 테이블
+    .from("inventory") 
     .select(`
         *,
         item_master!inner (item_name, uom, item_type)
@@ -184,14 +183,12 @@ export default async function InventoryPage({
 
   let filteredInventory = (rawInventory || []) as InventoryItem[];
 
-  // 구역 필터링
   if (team === 'PRODUCTION') {
     filteredInventory = filteredInventory.filter(i => !i.location_code.startsWith("2F"));
   } else if (team === 'LOGISTICS') {
     filteredInventory = filteredInventory.filter(i => i.location_code.startsWith("2F"));
   }
 
-  // 검색어 필터링
   if (query) {
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
     filteredInventory = filteredInventory.filter(item => {
