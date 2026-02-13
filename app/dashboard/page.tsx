@@ -61,8 +61,15 @@ export default function DashboardPage() {
   const handleQRScan = (code: string) => {
       setShowQRModal(false);
       if (!code) return;
+      
+      // 토스트 메시지 (선택 사항)
       toast.success(`위치 코드 인식: ${code}`);
-      router.push(`/inventory?loc=${code}`);
+
+      // 🚀 [수정] 파라미터 이름을 'location'으로 변경
+      // 기존: router.push(`/inventory?loc=${code}`);
+      // 변경: router.push(`/inventory?location=${code}`);
+      
+      router.push(`/inventory?location=${code}`);
   };
 
   if (loading) {

@@ -5,6 +5,8 @@ import HistorySearchForm from "@/components/HistorySearchForm";
 import PaginationControls from "@/components/PaginationControls"; 
 import { TX_TYPES, TxCode } from "@/constants/transaction";
 import HistoryFilterBar from "@/components/HistoryFilterBar"; 
+// 🚀 [변경 1] 아까 만든 타임존 변환 함수 불러오기
+import { formatToKST } from "@/utils/format";
 
 export const dynamic = 'force-dynamic';
 
@@ -95,14 +97,8 @@ export default async function HistoryPage({
   const endIdx = startIdx + ITEMS_PER_PAGE;
   const currentTransactions = transactions.slice(startIdx, endIdx);
 
-  const formatDateTime = (dateString: string) => {
-    if (!dateString) return "-";
-    const date = new Date(dateString);
-    return date.toLocaleString('ko-KR', { 
-        month: '2-digit', day: '2-digit', 
-        hour: '2-digit', minute: '2-digit', hour12: false 
-    });
-  };
+  // 🚀 [변경 2] 기존의 불완전한 formatDateTime 함수 제거
+  // (formatToKST를 직접 사용하므로 더 이상 필요 없음)
 
   return (
     <div className="space-y-6 animate-fade-in pb-32 p-4 md:p-8 bg-black min-h-screen text-white">
@@ -147,7 +143,8 @@ export default async function HistoryPage({
                 </thead>
                 <tbody className="divide-y divide-gray-800">
                     {currentTransactions.map((tx) => (
-                        <DesktopRow key={tx.id} tx={tx} formatDateTime={formatDateTime} />
+                        // 🚀 [변경 3] formatToKST 함수 전달
+                        <DesktopRow key={tx.id} tx={tx} formatDateTime={formatToKST} />
                     ))}
                     {currentTransactions.length === 0 && (
                         <tr><td colSpan={6} className="px-6 py-20 text-center text-gray-500">데이터가 없습니다.</td></tr>
@@ -160,7 +157,8 @@ export default async function HistoryPage({
       {/* 📱 Mobile 뷰 (최적화됨) */}
       <div className="md:hidden flex flex-col gap-3">
         {currentTransactions.map((tx) => (
-            <MobileCard key={tx.id} tx={tx} formatDateTime={formatDateTime} />
+            // 🚀 [변경 3] formatToKST 함수 전달
+            <MobileCard key={tx.id} tx={tx} formatDateTime={formatToKST} />
         ))}
         {currentTransactions.length === 0 && (
            <div className="py-20 text-center text-gray-500 border border-gray-800 rounded-lg bg-gray-900 text-sm">
@@ -212,6 +210,8 @@ const getTxBadge = (txCode: string, ioType: string) => {
     );
 };
 
+// ❗ formatDateTime의 타입 정의를 string | null | undefined까지 허용하도록 조금 넉넉하게 잡는 게 좋습니다.
+// 하지만 formatToKST가 null/undefined 처리를 하므로 (d: string) => string 타입과 호환됩니다.
 const DesktopRow = ({ tx, formatDateTime }: { tx: Transaction, formatDateTime: (d:string)=>string }) => {
     return (
         <tr className="bg-gray-900 hover:bg-gray-800 transition-colors">
