@@ -2,14 +2,13 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation"; // 🚀 추가
-import { ArrowLeft, Filter, Search, X, Map, Settings2 } from "lucide-react"; // ✨ Settings2 추가
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Filter, Search, X, Map, Settings2 } from "lucide-react";
 import { ArrowRightLeft, LogOut, MapPin, Box } from "lucide-react";
 import PaginationControls from "@/components/PaginationControls";
-import InventoryAdjustmentModal from "@/components/InventoryAdjustmentModal"; // 🚀 모달 import
+import InventoryAdjustmentModal from "@/components/InventoryAdjustmentModal";
+import { useAuth } from "@/context/AuthProvider";
 
-// 타입 정의
-// (InventoryPage에서 정의한 것과 동일하게 맞추는 것이 좋지만, 여기서는 prop으로 받으므로 그대로 둠)
 export interface InventoryItem {
   id: number;
   location_code: string;
@@ -43,20 +42,31 @@ export default function InventoryListClient({
   page,
   pageSize,
 }: Props) {
-  const router = useRouter(); // 🚀 라우터 추가
+  const router = useRouter();
   const [localQuery, setLocalQuery] = useState("");
 
-  // 🚀 모달 상태 관리
+  // 🚀 [수정] profile을 추가로 가져와 등급을 직접 확인합니다.
+  const { profile, permissions } = useAuth();
+
+  // 🚀 [핵심 수정] ADMIN 등급은 무조건 통과, 그 외는 설정된 권한을 따름
+  const canAdjust = useMemo(() => {
+    if (profile?.role === "ADMIN") return true; // 마스터 권한 바이패스
+    return permissions?.some(
+      (p) => p.feature_key === "inventory_adjustment" && p.is_enabled
+    );
+  }, [profile, permissions]);
+
+  // 모달 상태 관리
   const [isAdjModalOpen, setIsAdjModalOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
 
-  // 🚀 조정 버튼 클릭 핸들러
+  // 조정 버튼 클릭 핸들러
   const handleOpenAdjustment = (item: InventoryItem) => {
+    if (!canAdjust) return;
     setSelectedItem(item);
     setIsAdjModalOpen(true);
   };
 
-  // 🚀 데이터 갱신 핸들러
   const handleRefresh = () => {
     router.refresh();
   };
@@ -64,7 +74,6 @@ export default function InventoryListClient({
   // 실시간 필터링 로직
   const filteredList = useMemo(() => {
     if (!localQuery.trim()) return initialInventory;
-
     const lowerQuery = localQuery.toLowerCase();
     return initialInventory.filter((item) => {
       const searchTarget = `
@@ -95,10 +104,7 @@ export default function InventoryListClient({
       
       {/* 헤더 영역 */}
       <div className="border-b border-gray-800 pb-6">
-        {/* ... (기존 헤더 코드 동일) ... */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            
-            {/* 왼쪽: 타이틀 및 검색창 */}
             <div className="w-full md:w-auto">
                 <div className="flex items-center gap-4 mb-2">
                     <div className="flex items-center gap-2">
@@ -106,7 +112,6 @@ export default function InventoryListClient({
                         <h1 className="text-2xl font-bold whitespace-nowrap">조회 결과</h1>
                     </div>
 
-                    {/* PC용 검색창 */}
                     <div className="hidden md:flex relative w-64 group">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-blue-500 transition-colors" size={16} />
                         <input 
@@ -124,7 +129,6 @@ export default function InventoryListClient({
                     </div>
                 </div>
 
-                {/* 모바일용 검색창 */}
                 <div className="relative md:hidden w-full mt-2">
                     <input 
                         type="text" 
@@ -141,7 +145,6 @@ export default function InventoryListClient({
                     )}
                 </div>
 
-                {/* 조건 및 건수 정보 */}
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-400 mt-2">
                     <p>
                         조건: <span className="text-blue-300 font-bold">{conditionText}</span> 
@@ -158,7 +161,6 @@ export default function InventoryListClient({
                 </div>
             </div>
 
-            {/* 오른쪽 버튼 그룹 */}
             <div className="w-full md:w-auto flex flex-col md:flex-row gap-2">
                 <Link href="/location" className="w-full md:w-auto flex justify-center items-center gap-2 px-5 py-2.5 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition text-sm font-bold border border-gray-700 whitespace-nowrap group">
                     <Map size={16} className="text-purple-400 group-hover:text-purple-300 transition-colors"/> 창고 맵 보기
@@ -190,14 +192,10 @@ export default function InventoryListClient({
                 key={item.id} 
                 item={item} 
                 getMapLink={getMapLink} 
-                onAdjust={() => handleOpenAdjustment(item)} // 🚀 핸들러 전달
+                onAdjust={() => handleOpenAdjustment(item)}
+                showAdjust={canAdjust} 
               />
             ))}
-            {filteredList.length === 0 && (
-              <tr><td colSpan={6} className="px-6 py-20 text-center text-gray-500">
-                  {localQuery ? "검색 조건에 맞는 항목이 없습니다." : "데이터가 없습니다."}
-              </td></tr>
-            )}
           </tbody>
         </table>
       </div>
@@ -209,19 +207,14 @@ export default function InventoryListClient({
             key={item.id} 
             item={item} 
             getMapLink={getMapLink} 
-            onAdjust={() => handleOpenAdjustment(item)} // 🚀 핸들러 전달
+            onAdjust={() => handleOpenAdjustment(item)}
+            showAdjust={canAdjust} 
           />
         ))}
-        {filteredList.length === 0 && (
-           <div className="py-20 text-center text-gray-500 border border-gray-800 rounded-lg bg-gray-900">
-             {localQuery ? "검색 조건에 맞는 항목이 없습니다." : "데이터가 없습니다."}
-           </div>
-        )}
       </div>
 
       {!localQuery && <PaginationControls totalCount={serverTotalCount} pageSize={pageSize} />}
 
-      {/* 🚀 재고 조정 모달 */}
       <InventoryAdjustmentModal
         isOpen={isAdjModalOpen}
         onClose={() => setIsAdjModalOpen(false)}
@@ -237,8 +230,12 @@ export default function InventoryListClient({
 // 하위 컴포넌트
 // ----------------------------------------------------------------------
 
-// 🚀 DesktopRow에 onAdjust prop 추가
-const DesktopRow = ({ item, getMapLink, onAdjust }: { item: InventoryItem, getMapLink: (code: string) => string, onAdjust: () => void }) => {
+const DesktopRow = ({ item, getMapLink, onAdjust, showAdjust }: { 
+  item: InventoryItem, 
+  getMapLink: (code: string) => string, 
+  onAdjust: () => void,
+  showAdjust?: boolean 
+}) => {
     const mapLink = getMapLink(item.location_code);
     const outboundLink = `/outbound/new?loc=${item.location_code}&item=${item.item_key}&lot=${item.lot_no}&qty=${item.quantity}`;
     const moveLink = `/inventory/move?id=${item.id}&loc=${item.location_code}&item=${item.item_key}&lot=${item.lot_no}&qty=${item.quantity}`;
@@ -268,29 +265,34 @@ const DesktopRow = ({ item, getMapLink, onAdjust }: { item: InventoryItem, getMa
           <StatusBadge status={item.status} />
         </td>
         <td className="px-6 text-center align-middle whitespace-nowrap">
-          <ActionButtons moveLink={moveLink} outboundLink={outboundLink} onAdjust={onAdjust} />
+          <ActionButtons moveLink={moveLink} outboundLink={outboundLink} onAdjust={onAdjust} showAdjust={showAdjust} />
         </td>
       </tr>
     );
 };
 
-// 🚀 MobileCard에 onAdjust prop 추가
-const MobileCard = ({ item, getMapLink, onAdjust }: { item: InventoryItem, getMapLink: (code: string) => string, onAdjust: () => void }) => {
+const MobileCard = ({ item, getMapLink, onAdjust, showAdjust }: { 
+  item: InventoryItem, 
+  getMapLink: (code: string) => string, 
+  onAdjust: () => void,
+  showAdjust?: boolean 
+}) => {
     const mapLink = getMapLink(item.location_code);
     const outboundLink = `/outbound/new?loc=${item.location_code}&item=${item.item_key}&lot=${item.lot_no}&qty=${item.quantity}`;
     const moveLink = `/inventory/move?id=${item.id}&loc=${item.location_code}&item=${item.item_key}&lot=${item.lot_no}&qty=${item.quantity}`;
   
     return (
       <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 shadow-md active:border-blue-500/50 transition-colors relative">
-        {/* 🚀 우측 상단 조정 버튼 (모바일) */}
-        <button 
-            onClick={onAdjust}
-            className="absolute top-4 right-4 p-2 text-gray-500 hover:text-white bg-gray-800 rounded-full border border-gray-700"
-        >
-            <Settings2 size={16} />
-        </button>
+        {showAdjust && (
+          <button 
+              onClick={onAdjust}
+              className="absolute top-4 right-4 p-2 text-gray-500 hover:text-white bg-gray-800 rounded-full border border-gray-700 z-10"
+          >
+              <Settings2 size={16} />
+          </button>
+        )}
 
-        <div className="flex justify-between items-start mb-3 pr-10"> {/* pr-10으로 버튼 공간 확보 */}
+        <div className="flex justify-between items-start mb-3 pr-10">
           <Link href={mapLink} className="flex items-center gap-1.5 bg-gray-800 text-blue-300 px-3 py-1 rounded text-sm font-bold border border-gray-700">
               <MapPin size={14} />
               {item.location_code}
@@ -329,8 +331,12 @@ const StatusBadge = ({ status }: { status: string }) => (
   </span>
 );
 
-// 🚀 ActionButtons에 onAdjust prop 추가 및 버튼 배치
-const ActionButtons = ({ moveLink, outboundLink, onAdjust }: { moveLink: string, outboundLink: string, onAdjust: () => void }) => (
+const ActionButtons = ({ moveLink, outboundLink, onAdjust, showAdjust }: { 
+  moveLink: string, 
+  outboundLink: string, 
+  onAdjust: () => void,
+  showAdjust?: boolean
+}) => (
   <div className="flex items-center justify-center gap-2">
     <Link href={moveLink} className="group inline-flex items-center gap-1 text-xs font-bold text-gray-400 hover:text-blue-400 transition-colors px-2 py-1 rounded hover:bg-blue-900/20">
       <ArrowRightLeft size={14} /> <span>이동</span>
@@ -339,10 +345,18 @@ const ActionButtons = ({ moveLink, outboundLink, onAdjust }: { moveLink: string,
     <Link href={outboundLink} className="group inline-flex items-center gap-1 text-xs font-bold text-gray-400 hover:text-red-400 transition-colors px-2 py-1 rounded hover:bg-red-900/20">
       <LogOut size={14} /> <span>출고</span>
     </Link>
-    {/* 🚀 조정 버튼 (아이콘만 표시) */}
-    <div className="w-[1px] h-3 bg-gray-700"></div>
-    <button onClick={onAdjust} className="group inline-flex items-center gap-1 text-xs font-bold text-gray-500 hover:text-yellow-400 transition-colors px-2 py-1 rounded hover:bg-yellow-900/20" title="재고 조정">
-      <Settings2 size={14} />
-    </button>
+    
+    {showAdjust && (
+      <>
+        <div className="w-[1px] h-3 bg-gray-700"></div>
+        <button 
+          onClick={onAdjust} 
+          className="group inline-flex items-center gap-1 text-xs font-bold text-gray-500 hover:text-yellow-300 transition-colors px-2 py-1 rounded hover:bg-yellow-900/20" 
+          title="재고 조정"
+        >
+          <Settings2 size={14} /> <span>조정</span>
+        </button>
+      </>
+    )}
   </div>
 );
