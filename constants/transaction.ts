@@ -8,6 +8,9 @@ export const TX_TYPES = {
   IN_PROD:     { code: 'IN_PROD',     label: '🏭 생산 입고', type: 'IN', color: 'indigo' },
   IN_RETURN:   { code: 'IN_RETURN',   label: '↩️ 판매 반품', type: 'IN', color: 'orange' }, // 고객 -> 우리
   IN_ETC:      { code: 'IN_ETC',      label: '🎸 기타 입고', type: 'IN', color: 'gray' },
+  
+  // (직접 입고 추가)
+  DIRECT_IN:   { code: 'DIRECT_IN',   label: '⚡ 직접 입고', type: 'IN', color: 'blue' },
 
   // ------------------------------------------------------------------
   // 2. 출고 (OUT) - 재고 감소 (-)
@@ -23,7 +26,14 @@ export const TX_TYPES = {
   // 3. 이동/조정 (MOVE/ADJ) - 위치 변경 or 수량 보정
   // ------------------------------------------------------------------
   MV_LOC:    { code: 'MV_LOC',    label: '🔄 랙 이동',   type: 'MOVE', color: 'yellow' },
-  ADJ_STOCK: { code: 'ADJ_STOCK', label: '⚖️ 재고 조정', type: 'ADJ',  color: 'zinc' }, 
+  MV_WH:     { code: 'MV_WH',     label: '🏭 창고 이동', type: 'MOVE', color: 'yellow' }, // (필요 시 사용)
+
+  // 🚀 [수정] 재고 조정 상세 코드 추가
+  ADJ_STOCK: { code: 'ADJ_STOCK', label: '⚖️ 재고 조정', type: 'ADJ',  color: 'zinc' }, // (기본/하위호환용)
+  
+  ADJ_IN:    { code: 'ADJ_IN',    label: '📈 조정 입고 (+)', type: 'ADJ',  color: 'green' },
+  ADJ_OUT:   { code: 'ADJ_OUT',   label: '📉 조정 출고 (-)', type: 'ADJ',  color: 'red' },
+
 } as const;
 
 export type TxCode = keyof typeof TX_TYPES;

@@ -62,9 +62,17 @@ export default async function HistoryPage({
   if (params.endDate) query = query.lte("transaction_date", `${params.endDate}T23:59:59`);
   
   if (params.txType && params.txType !== 'ALL') {
-    if (params.txType === 'INBOUND') query = query.in("transaction_type", ['INBOUND', 'DIRECT_IN']);
-    else if (params.txType === 'MOVE') query = query.in("transaction_type", ['MOVE', 'MOVE_IN', 'MOVE_OUT']);
-    else query = query.eq("transaction_type", params.txType);
+    if (params.txType === 'INBOUND') {
+        query = query.in("transaction_type", ['INBOUND', 'DIRECT_IN']);
+    } else if (params.txType === 'OUTBOUND') { // 🚀 OUTBOUND 케이스도 명시적으로 추가 (안전하게)
+        query = query.in("transaction_type", ['OUTBOUND']);
+    } else if (params.txType === 'MOVE') {
+        query = query.in("transaction_type", ['MOVE', 'MOVE_IN', 'MOVE_OUT']);
+    } else if (params.txType === 'ADJUST') { // 🚀 [추가] 조정 필터링 로직
+        query = query.eq("transaction_type", 'ADJUSTMENT'); // DB에는 'ADJUSTMENT'로 저장됨
+    } else {
+        query = query.eq("transaction_type", params.txType);
+    }
   }
 
   const { data: rawData, error } = await query;

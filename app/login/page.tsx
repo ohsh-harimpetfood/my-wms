@@ -59,7 +59,7 @@ export default function LoginPage() {
           <h1 className="text-3xl font-bold text-white mb-2 flex items-center justify-center gap-2">
             <Lock className="text-blue-500" /> My WMS Login
           </h1>
-          <p className="text-gray-400 text-sm">창고 관리 시스템에 접속합니다.</p>
+          <p className="text-gray-400 text-sm">하림펫푸드 창고 관리 시스템에 접속합니다.</p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-6">
