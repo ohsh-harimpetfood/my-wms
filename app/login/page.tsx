@@ -5,6 +5,8 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { LogIn, Lock, Mail, Loader2, CheckSquare, Square } from "lucide-react";
+// 🚀 [추가] 배경 컴포넌트 Import
+import LoginBg from "@/components/login/LoginBg";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,11 +14,10 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [rememberId, setRememberId] = useState(false); // ✨ 아이디 저장 상태
+  const [rememberId, setRememberId] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // ✨ 초기 로드 시 저장된 이메일 확인
   useEffect(() => {
     const savedEmail = localStorage.getItem("savedEmail");
     if (savedEmail) {
@@ -39,22 +40,25 @@ export default function LoginPage() {
       setErrorMsg("로그인 실패: 아이디 또는 비밀번호를 확인하세요.");
       setLoading(false);
     } else {
-      // ✨ 로그인 성공 시 아이디 저장 처리
       if (rememberId) {
         localStorage.setItem("savedEmail", email);
       } else {
         localStorage.removeItem("savedEmail");
       }
-
-      // ✨ 로그인 성공 시 대시보드로 이동
       router.push("/dashboard"); 
       router.refresh();
     }
   };
 
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-gray-900 border border-gray-800 p-8 rounded-2xl shadow-2xl animate-fade-in">
+    // 🚀 [수정] bg-black 제거 + relative 추가 (배경 컴포넌트 기준점)
+    <div className="relative min-h-screen flex items-center justify-center p-4 overflow-hidden">
+      
+      {/* 🚀 [추가] 배경 컴포넌트 삽입 (가장 먼저 렌더링되어 뒤에 깔림) */}
+      <LoginBg />
+
+      {/* 🚀 [수정] z-10 추가 (배경 위로 띄우기) */}
+      <div className="relative z-10 w-full max-w-md bg-gray-900/80 backdrop-blur-md border border-gray-800 p-8 rounded-2xl shadow-2xl animate-fade-in-up">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-white mb-2 flex items-center justify-center gap-2">
             <Lock className="text-blue-500" /> My WMS Login
@@ -67,10 +71,11 @@ export default function LoginPage() {
             <label className="block text-sm text-gray-400 mb-2">이메일</label>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={20} />
+              {/* 인풋 배경도 살짝 투명하게 주면 더 세련됨 (선택사항) */}
               <input 
                 type="email" 
                 required
-                className="w-full bg-black border border-gray-700 rounded-lg py-3 pl-10 pr-4 text-white outline-none focus:border-blue-500 transition placeholder-gray-600"
+                className="w-full bg-black/50 border border-gray-700 rounded-lg py-3 pl-10 pr-4 text-white outline-none focus:border-blue-500 transition placeholder-gray-600"
                 placeholder="user@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -85,7 +90,7 @@ export default function LoginPage() {
               <input 
                 type="password" 
                 required
-                className="w-full bg-black border border-gray-700 rounded-lg py-3 pl-10 pr-4 text-white outline-none focus:border-blue-500 transition placeholder-gray-600"
+                className="w-full bg-black/50 border border-gray-700 rounded-lg py-3 pl-10 pr-4 text-white outline-none focus:border-blue-500 transition placeholder-gray-600"
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -93,7 +98,6 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* ✨ 아이디 저장 & 비밀번호 찾기 (Flex로 양쪽 배치) */}
           <div className="flex items-center justify-between">
             <button
               type="button"
@@ -108,7 +112,6 @@ export default function LoginPage() {
               아이디 저장
             </button>
             
-            {/* 🚀 [추가됨] 비밀번호 찾기 링크 */}
             <Link 
                 href="/forgot-password" 
                 className="text-sm text-gray-500 hover:text-blue-400 transition underline-offset-4 hover:underline"
@@ -138,6 +141,11 @@ export default function LoginPage() {
             회원가입 신청
           </Link>
         </div>
+        
+        {/* 하단 카피라이트 (폼 안에 넣거나 밖으로 빼도 됨) */}
+        <p className="mt-8 text-center text-xs text-gray-600/50">
+          © 2026 P2DX Corp. All rights reserved.
+        </p>
       </div>
     </div>
   );
