@@ -3,20 +3,18 @@
 import { createClient } from "@/utils/supabase/client";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useMemo } from "react";
-// 🚀 [수정] 'X' 아이콘 import 추가
 import { ArrowLeft, Search, Plus, Check, Minus, Trash2, Package, X } from "lucide-react"; 
 import { TxCode, getTxTypesByGroup } from '@/constants/transaction'; 
 import { useAuth } from "@/context/AuthProvider";
 import { useUI } from "@/context/UIProvider";
 
-// 🚀 [수정] Item 인터페이스 로컬 정의
 interface Item {
   item_key: string;
   item_name: string;
   remark?: string;
   active_flag: string;
   item_type?: string; 
-  uom?: string;       
+  uom?: string;      
 }
 
 export default function NewInboundPage() {
@@ -36,10 +34,8 @@ export default function NewInboundPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   
-  // 드롭다운 제어
   const [showDropdown, setShowDropdown] = useState(false);
 
-  // 초기 품목 데이터 로드
   useEffect(() => {
     const fetchItems = async () => {
       const { data } = await supabase.from("item_master").select("*").eq("active_flag", "Y").order("item_name");
@@ -48,22 +44,19 @@ export default function NewInboundPage() {
     fetchItems();
   }, [supabase]);
 
-  // 입고 유형 변경 시 공급처 자동 세팅
   useEffect(() => {
     switch (inboundType) {
         case 'IN_PROD': setSupplier('내부 생산라인'); break;
         case 'IN_RETURN': setSupplier('반품(고객사)'); break;
-        case 'IN_ETC': setSupplier('기타'); break;
+        // IN_ETC나 직접 입고 등은 빈칸으로 두어 직접 입력하게 유도하거나 기본값 부여
+        case 'IN_ETC': setSupplier('기타(직접입력)'); break; 
         case 'IN_PURCHASE': default: setSupplier(''); break;
     }
   }, [inboundType]);
 
-  // 🚀 [수정] 스마트 검색 로직
   const filteredItems = useMemo(() => {
     if (!searchTerm.trim()) return [];
-
     const terms = searchTerm.toLowerCase().split(/\s+/).filter(Boolean); 
-
     return allItems.filter(item => {
         const targetText = `${item.item_name} ${item.item_key} ${item.item_type || ''}`.toLowerCase();
         return terms.every(term => targetText.includes(term));
@@ -83,15 +76,15 @@ export default function NewInboundPage() {
     toast.success(`${item.item_name} 추가됨`);
   };
 
-  // 수량 변경 핸들러
+  // 🚀 [수정] 수량 변경 핸들러 (콤마 제거 후 숫자만 저장)
   const updateQty = (index: number, val: string) => {
-    const num = Number(val.replace(/[^0-9]/g, ''));
+    const sanitized = val.replace(/[^0-9]/g, ''); // 숫자 이외 제거
+    const num = Number(sanitized);
     const newItems = [...selectedItems];
     newItems[index].qty = num;
     setSelectedItems(newItems);
   };
 
-  // ➕➖ 수량 조절 버튼 핸들러
   const adjustQty = (index: number, delta: number) => {
     const newItems = [...selectedItems];
     const current = newItems[index].qty || 0;
@@ -105,10 +98,9 @@ export default function NewInboundPage() {
     setSelectedItems(selectedItems.filter((_, i) => i !== index));
   };
 
-  // --- 3. 저장 핸들러 ---
   const handleSave = async () => {
     if (!user) return toast.error("로그인 정보가 없습니다.");
-    if (!supplier) return toast.warning("공급처 정보가 필요합니다.");
+    if (!supplier) return toast.warning("공급처 정보를 입력해주세요.");
     if (selectedItems.length === 0) return toast.warning("최소 1개 이상의 품목을 추가해주세요.");
     
     const invalidItem = selectedItems.find(i => !i.qty || i.qty <= 0);
@@ -122,12 +114,10 @@ export default function NewInboundPage() {
 
     setLoading(true);
     try {
-      // 입고 번호 생성 (YYMMDD-랜덤4자리)
-      const dateStr = planDate.replace(/-/g, '').slice(2); // YYMMDD
+      const dateStr = planDate.replace(/-/g, '').slice(2);
       const randomStr = Math.floor(1000 + Math.random() * 9000);
       const inboundNo = `IB-${dateStr}-${randomStr}`;
       
-      // A. 마스터 등록
       const { error: masterError } = await supabase.from("inbound_master").insert({
         inbound_no: inboundNo,
         inbound_type: inboundType,
@@ -139,7 +129,6 @@ export default function NewInboundPage() {
       });
       if (masterError) throw masterError;
 
-      // B. 상세 등록
       const details = selectedItems.map(si => ({
         inbound_no: inboundNo,
         item_key: si.item.item_key,
@@ -156,7 +145,6 @@ export default function NewInboundPage() {
       router.refresh();
       
     } catch (e: any) {
-      console.error(e);
       toast.error("저장 중 오류가 발생했습니다: " + e.message);
     } finally {
       setLoading(false);
@@ -165,20 +153,15 @@ export default function NewInboundPage() {
 
   return (
     <div className="p-4 md:p-8 bg-black min-h-screen text-white font-[family-name:var(--font-geist-sans)] pb-32">
-      {/* 헤더 */}
       <div className="flex items-center gap-4 mb-8 border-b border-gray-800 pb-4 sticky top-0 bg-black/90 backdrop-blur-sm z-30 pt-2">
         <button onClick={() => router.back()} className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition"><ArrowLeft /></button>
         <h1 className="text-xl md:text-2xl font-bold">📝 입고 예정 등록 (Plan)</h1>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-8 animate-fade-in">
-        
-        {/* 좌측: 입력 폼 & 품목 검색 */}
         <div className="w-full lg:w-1/3 space-y-6">
             <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl">
                 <h2 className="text-lg font-bold text-blue-400 mb-4">1. 기본 정보</h2>
-                
-                {/* 입고 유형 버튼 그룹 */}
                 <div className="grid grid-cols-2 gap-2 mb-6">
                     {getTxTypesByGroup('IN').map((type) => (
                         <button
@@ -198,14 +181,14 @@ export default function NewInboundPage() {
 
                 <div className="space-y-4">
                     <div>
-                        <label className="block text-sm text-gray-400 mb-1 font-bold">공급처</label>
+                        <label className="block text-sm text-gray-400 mb-1 font-bold">공급처 <span className="text-red-500">*</span></label>
+                        {/* 🚀 [수정] readOnly 제거 및 스타일 항상 입력 가능하게 변경 */}
                         <input 
                             type="text" 
-                            className={`w-full bg-black border border-gray-700 rounded-lg px-4 py-3 outline-none focus:border-blue-500 transition ${inboundType !== 'IN_PURCHASE' ? 'text-gray-500 bg-gray-900/50' : 'text-white'}`}
+                            className="w-full bg-black border border-gray-700 rounded-lg px-4 py-3 outline-none focus:border-blue-500 transition text-white"
                             value={supplier}
                             onChange={(e) => setSupplier(e.target.value)}
-                            readOnly={inboundType !== 'IN_PURCHASE'} 
-                            placeholder="공급처 입력"
+                            placeholder="공급처 직접 입력"
                         />
                     </div>
                     <div>
@@ -219,6 +202,7 @@ export default function NewInboundPage() {
                 </div>
             </div>
 
+            {/* 품목 검색 영역은 동일하여 생략 (그대로 둠) */}
             <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl relative z-20">
                 <h2 className="text-lg font-bold text-blue-400 mb-4">2. 품목 추가</h2>
                 <div className="relative">
@@ -235,7 +219,6 @@ export default function NewInboundPage() {
                             }}
                             onFocus={() => setShowDropdown(true)}
                         />
-                        {/* 🚀 [수정] X 아이콘 사용 */}
                         {searchTerm && (
                             <button onClick={() => { setSearchTerm(""); setShowDropdown(false); }} className="text-gray-500 hover:text-white">
                                 <X size={16}/>
@@ -243,7 +226,6 @@ export default function NewInboundPage() {
                         )}
                     </div>
                     
-                    {/* 검색 결과 드롭다운 */}
                     {showDropdown && searchTerm && (
                         <>
                             <div className="absolute top-full left-0 w-full bg-gray-800 border border-gray-700 rounded-b-lg mt-1 z-30 shadow-xl max-h-60 overflow-y-auto custom-scrollbar animate-fade-in">
@@ -270,7 +252,6 @@ export default function NewInboundPage() {
                                     ))
                                 )}
                             </div>
-                            {/* 백드롭 */}
                             <div className="fixed inset-0 z-10" onClick={() => setShowDropdown(false)}></div>
                         </>
                     )}
@@ -298,7 +279,6 @@ export default function NewInboundPage() {
                     ) : (
                         selectedItems.map((row, idx) => (
                             <div key={idx} className="bg-black border border-gray-800 p-4 rounded-xl hover:border-blue-500/50 transition group flex flex-col sm:flex-row items-center gap-4">
-                                {/* 품목 정보 */}
                                 <div className="flex-1 w-full text-center sm:text-left">
                                     <div className="font-bold text-white text-lg">{row.item.item_name}</div>
                                     <div className="text-sm text-gray-500 flex items-center justify-center sm:justify-start gap-2 mt-1">
@@ -315,12 +295,12 @@ export default function NewInboundPage() {
                                     >
                                         <Minus size={18}/>
                                     </button>
+                                    {/* 🚀 [수정] type="text" 로 변경, 콤마 적용, w-16 -> w-24로 늘림 */}
                                     <input 
-                                        type="number" 
+                                        type="text" 
                                         inputMode="numeric"
-                                        pattern="[0-9]*"
-                                        className="w-16 bg-transparent text-center text-white font-bold outline-none text-lg" 
-                                        value={row.qty || ''} 
+                                        className="w-24 bg-transparent text-center text-white font-bold outline-none text-lg" 
+                                        value={row.qty ? row.qty.toLocaleString() : ''} 
                                         onChange={(e) => updateQty(idx, e.target.value)} 
                                     />
                                     <button 
@@ -331,7 +311,6 @@ export default function NewInboundPage() {
                                     </button>
                                 </div>
 
-                                {/* 삭제 버튼 */}
                                 <button 
                                     onClick={() => removeItem(idx)} 
                                     className="p-3 text-gray-600 hover:text-red-500 hover:bg-red-900/10 rounded-full transition shrink-0"

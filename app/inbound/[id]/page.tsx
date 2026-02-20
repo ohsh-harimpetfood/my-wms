@@ -356,13 +356,13 @@ export default function InboundWorkPage() {
                   </div>
                 </div>
 
-                {/* 🚀 [추가] 총 입고 수량 입력 */}
+                {/* 🚀 [수정] 총 입고 수량 입력: type="text" & 콤마 적용 */}
                 <div>
                   <label className="block text-sm text-gray-400 mb-2 font-bold">입고 대상 총 수량</label>
                   <input 
-                    type="number" inputMode="numeric" pattern="[0-9]*"
-                    className="w-full bg-black border border-gray-700 rounded-lg p-3 text-white focus:border-blue-500 outline-none text-2xl font-bold text-right placeholder-gray-800" 
-                    value={inputQty} 
+                    type="text" inputMode="numeric"
+                    className="w-full bg-black border border-gray-700 rounded-lg p-3 text-white focus:border-blue-500 outline-none text-3xl font-bold text-right placeholder-gray-800" 
+                    value={inputQty ? Number(inputQty).toLocaleString() : ''} 
                     onChange={handleQtyChange}
                     placeholder="0" 
                   />
@@ -390,9 +390,9 @@ export default function InboundWorkPage() {
                         <div>
                             <label className="block text-xs text-blue-300 mb-1 font-bold">단위 수량 (1개 위치당 적재량)</label>
                             <input 
-                                type="number" inputMode="numeric" pattern="[0-9]*"
-                                className="w-full bg-black border border-blue-900/50 rounded-lg p-2.5 text-blue-100 focus:border-blue-500 outline-none text-lg font-bold text-right" 
-                                value={unitQty} 
+                                type="text" inputMode="numeric"
+                                className="w-full bg-black border border-blue-900/50 rounded-lg p-2.5 text-blue-100 focus:border-blue-500 outline-none text-xl font-bold text-right" 
+                                value={unitQty ? Number(unitQty).toLocaleString() : ''} 
                                 onChange={handleUnitQtyChange}
                                 placeholder="예: 500" 
                             />

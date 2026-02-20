@@ -3,10 +3,12 @@
 import { createClient } from '@/utils/supabase/client';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, MapPin, Search, AlertTriangle, X, Loader2, Check, Package, Box } from 'lucide-react';
+// 🚀 [수정] Link와 Layers 아이콘 추가
+import Link from 'next/link';
+import { ArrowLeft, MapPin, Search, AlertTriangle, X, Loader2, Check, Package, Box, Layers } from 'lucide-react';
 import { useUI } from '@/context/UIProvider';
 import { TX_TYPES, TxCode, getTxTypesByGroup } from '@/constants/transaction'; 
-import { useAuth } from "@/context/AuthProvider"; // ✨ [추가]
+import { useAuth } from "@/context/AuthProvider"; 
 
 interface StockItem {
   id: number;
@@ -30,7 +32,7 @@ export default function OutboundPage() {
   const router = useRouter();
   const supabase = createClient();
   const { alert, confirm, toast } = useUI();
-  const { user } = useAuth(); // ✨ [추가] 유저 정보
+  const { user } = useAuth(); 
 
   // --- 상태 관리 ---
   const [keyword, setKeyword] = useState("");
@@ -38,7 +40,6 @@ export default function OutboundPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [selectedStock, setSelectedStock] = useState<StockItem | null>(null);
 
-  // 🚀 [신규] 출고 유형 상태 (기본값: 생산 투입)
   const [txCode, setTxCode] = useState<TxCode>('OUT_PROD');
 
   const [masterCandidates, setMasterCandidates] = useState<SearchCandidate[]>([]);
@@ -48,7 +49,7 @@ export default function OutboundPage() {
   const [remark, setRemark] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // --- 0. 초기화 (마스터 데이터 로드 - 기존 동일) ---
+  // --- 0. 초기화 ---
   useEffect(() => {
     const loadMasterData = async () => {
       if (isMasterLoaded.current) return;
@@ -65,7 +66,7 @@ export default function OutboundPage() {
     loadMasterData();
   }, [supabase]);
 
-  // --- 1. 스마트 검색 로직 (성능 최적화 & 청크 분할 조회) ---
+  // --- 1. 스마트 검색 로직 ---
   const executeSearch = useCallback(async (term: string) => {
     setIsSearching(true);
     setSearchResults([]);
@@ -78,29 +79,18 @@ export default function OutboundPage() {
         return;
       }
 
-      // 검색어 분리 (예: "슬림 70" -> ["슬림", "70"])
       const terms = cleanTerm.toLowerCase().split(/\s+/).filter(Boolean);
 
-      // ---------------------------------------------------------
-      // Step 1. [정밀 타격] 마스터 데이터에서 '모든 단어'를 포함하는 품목 키 추출
-      // ---------------------------------------------------------
-      // 기존에는 '하나라도(OR)' 맞으면 다 가져왔지만, 이제는 '모두(AND)' 맞는 것만 가져옵니다.
-      // 이렇게 하면 "슬림 70" 검색 시 불필요한 "볼펜 70" 같은 건 제외되어 조회 대상이 획기적으로 줄어듭니다.
       const targetItemKeys = masterCandidates
         .filter(c => {
             const name = c.item_name.toLowerCase();
             const code = c.item_key.toLowerCase();
-            // 검색어의 모든 단어가 이름이나 코드에 포함되어야 함 (AND 조건)
             return terms.every(t => name.includes(t) || code.includes(t));
         })
         .map(c => c.item_key);
 
-      // ---------------------------------------------------------
-      // Step 2. [병렬 조회] 1) 품목기반 조회 + 2) 위치/LOT기반 조회
-      // ---------------------------------------------------------
       const promises = [];
 
-      // A. [품목명 검색] URL 길이 제한 방지를 위해 30개씩 끊어서 조회 (Chunking)
       const CHUNK_SIZE = 30;
       for (let i = 0; i < targetItemKeys.length; i += CHUNK_SIZE) {
           const chunk = targetItemKeys.slice(i, i + CHUNK_SIZE);
@@ -111,18 +101,15 @@ export default function OutboundPage() {
                   id, location_code, item_key, lot_no, quantity,
                   item_master!inner ( item_name, uom )
               `)
-              .in('item_key', chunk); // 정확히 매칭된 키들만 조회
+              .in('item_key', chunk);
           
           promises.push(itemQuery);
       }
 
-      // B. [일반 검색] 위치(Location)나 LOT번호 검색 (이건 텍스트 OR 검색)
-      // "A-01"을 검색했을 때 품목명엔 없어도 위치에는 있을 수 있으므로 별도 수행
       const textConditions: string[] = [];
       terms.forEach(t => {
           textConditions.push(`location_code.ilike.%${t}%`);
           textConditions.push(`lot_no.ilike.%${t}%`);
-          // item_key ilike는 위(A)에서 처리했으므로 생략 가능하나, 부분일치 보완을 위해 둠
           textConditions.push(`item_key.ilike.%${t}%`);
       });
 
@@ -133,30 +120,22 @@ export default function OutboundPage() {
                   id, location_code, item_key, lot_no, quantity,
                   item_master!inner ( item_name, uom )
               `)
-              .or(textConditions.join(',')) // 검색어 중 하나라도 포함된 위치/LOT
-              .limit(50); // 너무 많이 가져오지 않도록 제한
+              .or(textConditions.join(','))
+              .limit(50);
           
           promises.push(metaQuery);
       }
 
-      // ---------------------------------------------------------
-      // Step 3. [결과 병합] 모든 쿼리 결과 합치기
-      // ---------------------------------------------------------
       const responses = await Promise.all(promises);
       
       let allRows: any[] = [];
       responses.forEach(res => {
           if (res.data) allRows = [...allRows, ...res.data];
-          if (res.error) console.error(res.error); // 에러 로그만 남기고 진행
+          if (res.error) console.error(res.error); 
       });
 
-      // ---------------------------------------------------------
-      // Step 4. [최종 정제] 중복 제거 및 최종 AND 필터링
-      // ---------------------------------------------------------
-      // 중복 제거 (ID 기준)
       const uniqueRows = Array.from(new Map(allRows.map(item => [item['id'], item])).values());
 
-      // 최종적으로 사용자가 입력한 검색어가 모두 포함된 결과만 남김
       const finalResults = uniqueRows.filter(stock => {
           const targetStr = `
             ${stock.location_code} 
@@ -165,7 +144,6 @@ export default function OutboundPage() {
             ${stock.lot_no}
           `.toLowerCase();
 
-          // 검색어의 모든 단어가 결과 문자열 어딘가에 있어야 함
           return terms.every(t => targetStr.includes(t));
       });
 
@@ -179,7 +157,7 @@ export default function OutboundPage() {
     }
   }, [supabase, masterCandidates]);
 
-  // --- 2. Debounce (기존 동일) ---
+  // --- 2. Debounce ---
   useEffect(() => {
     const handler = setTimeout(() => {
         if (keyword.trim()) executeSearch(keyword);
@@ -192,13 +170,12 @@ export default function OutboundPage() {
     setSelectedStock(stock);
     setOutQty(""); 
     setRemark(""); 
-    // 선택 시 기본값 유지
     setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 100);
   };
 
-  // --- 3. 출고 실행 핸들러 (업데이트됨) ---
+  // --- 3. 출고 실행 핸들러 ---
   const handleOutbound = async () => {
-    if (!user) { // ✨ 안전장치
+    if (!user) { 
         await alert("로그인 세션이 만료되었습니다.", "error");
         return;
     }
@@ -208,7 +185,6 @@ export default function OutboundPage() {
     if (qty <= 0) return alert("출고 수량은 0보다 커야 합니다.", "error");
     if (qty > selectedStock.quantity) return alert(`출고 가능 수량을 초과했습니다.`, "error");
 
-    // 🚀 확인 메시지에 출고 유형 포함
     const txLabel = TX_TYPES[txCode].label;
     const confirmMsg = `[${txLabel}]\n품목: ${selectedStock.item_master?.item_name}\n수량: ${qty.toLocaleString()}개\n\n출고하시겠습니까?`;
     
@@ -218,33 +194,30 @@ export default function OutboundPage() {
     try {
       const newQty = selectedStock.quantity - qty;
 
-      // 1. 재고 차감 (0이면 삭제)
       if (newQty === 0) {
         await supabase.from('inventory').delete().eq('id', selectedStock.id);
       } else {
         await supabase.from('inventory').update({ 
             quantity: newQty, 
             updated_at: new Date().toISOString(),
-            updated_by: user.id // ✨ 수정자 기록
+            updated_by: user.id 
         }).eq('id', selectedStock.id);
       }
 
-      // 2. 수불 이력 생성 (🚀 tx_code 및 created_by 저장!)
       await supabase.from('stock_tx').insert({
         transaction_type: 'OUTBOUND', 
         io_type: 'OUT',
-        tx_code: txCode,               // ✨ 선택한 유형
+        tx_code: txCode, 
         location_code: selectedStock.location_code, 
         item_key: selectedStock.item_key, 
         lot_no: selectedStock.lot_no,
         quantity: -qty, 
         remark: remark || txLabel,
-        created_by: user.id            // ✨ 작업자 기록
+        created_by: user.id 
       });
 
       await toast.success("출고 처리가 완료되었습니다.");
       
-      // 초기화
       setSelectedStock(null);
       setOutQty("");
       setRemark("");
@@ -263,19 +236,31 @@ export default function OutboundPage() {
     <div className="p-4 md:p-8 bg-black min-h-screen text-white font-[family-name:var(--font-geist-sans)] flex justify-center pb-24">
       <div className="w-full max-w-2xl animate-fade-in">
         
-        {/* 헤더 */}
+        {/* 🚀 [수정] 헤더 영역 - 대량 출고 진입 버튼 추가 */}
         <div className="flex items-center justify-between gap-4 mb-6 border-b border-gray-800 pb-4">
             <div className="flex items-center gap-3">
                 <button onClick={() => router.back()} className="text-gray-400 hover:text-white transition"><ArrowLeft /></button>
                 <h1 className="text-xl md:text-2xl font-bold text-red-500 flex items-center gap-2">
-                    <AlertTriangle /> 재고 검색 출고
+                    <AlertTriangle /> 단일 출고
                 </h1>
             </div>
-            {selectedStock && (
-                <button onClick={() => setSelectedStock(null)} className="text-xs bg-gray-800 px-3 py-1 rounded-full text-gray-300 hover:bg-gray-700 flex items-center gap-1">
-                    <X size={12}/> 선택 취소
-                </button>
-            )}
+            
+            <div className="flex items-center gap-2">
+                {!selectedStock && (
+                    <Link 
+                        href="/outbound/bulk" 
+                        className="bg-red-900/20 hover:bg-red-900/40 border border-red-800/50 text-red-400 hover:text-red-300 px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition"
+                    >
+                        <Layers size={16} /> 대량 할당 출고 ➔
+                    </Link>
+                )}
+
+                {selectedStock && (
+                    <button onClick={() => setSelectedStock(null)} className="text-xs bg-gray-800 px-3 py-1 rounded-full text-gray-300 hover:bg-gray-700 flex items-center gap-1 h-8">
+                        <X size={12}/> 선택 취소
+                    </button>
+                )}
+            </div>
         </div>
 
         {/* 검색 영역 */}

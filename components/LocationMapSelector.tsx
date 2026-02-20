@@ -22,14 +22,45 @@ const SimpleCell = ({ locCode, inventory, isEmpty, onSelect, isShuttle, isMultiM
 
   const depthDisplay = isShuttle ? locCode.slice(-2).replace(/[^0-9]/g, '') : locCode;
 
+  // 🚀 [신규] 모바일 2-Tap 처리를 위한 상태
+  const [isMobilePreview, setIsMobilePreview] = useState(false);
+
+  useEffect(() => {
+      // 미리보기가 켜지면 3초 뒤에 자동으로 꺼짐 (잔상 방지)
+      if (isMobilePreview) {
+          const t = setTimeout(() => setIsMobilePreview(false), 3000);
+          return () => clearTimeout(t);
+      }
+  }, [isMobilePreview]);
+
+  const handleInteraction = () => {
+      if (isEmpty || isSelected) {
+          onSelect(locCode); // 비어있거나 이미 선택된 건 바로 실행
+          return;
+      }
+
+      // 모바일 기기(화면 폭 768px 미만)일 때 2-Tap 로직 적용
+      if (window.innerWidth < 768) {
+          if (!isMobilePreview) {
+              setIsMobilePreview(true); // 1st Tap: 미리보기 말풍선 켬
+              return;
+          }
+      }
+      
+      // PC이거나 2nd Tap일 때 선택 실행
+      onSelect(locCode);
+      setIsMobilePreview(false);
+  };
+
   return (
+    // 🚀 [수정] 말풍선이 잘리지 않도록 overflow-hidden 제거 (z-index 추가)
     <button
-      onClick={() => onSelect(locCode)}
+      onClick={handleInteraction}
       className={`
-        flex flex-col justify-between rounded border transition-all w-full text-left relative overflow-hidden group
+        flex flex-col justify-between rounded border transition-all w-full text-left relative group
         ${isShuttle ? 'h-12 p-1 md:h-16 md:p-2' : 'h-14 p-1 md:h-24 md:p-3'}
         ${isSelected 
-            ? "bg-blue-900/40 border-blue-500 ring-2 ring-blue-500 ring-inset shadow-[0_0_15px_rgba(59,130,246,0.3)]"
+            ? "bg-blue-900/40 border-blue-500 ring-2 ring-blue-500 ring-inset shadow-[0_0_15px_rgba(59,130,246,0.3)] z-10"
             : isEmpty 
                 ? "bg-gray-800 border-gray-700 text-gray-500 hover:border-gray-400 hover:bg-gray-700" 
                 : "bg-purple-900/30 border-purple-500/50 text-purple-100 hover:bg-purple-900/50"
@@ -37,11 +68,11 @@ const SimpleCell = ({ locCode, inventory, isEmpty, onSelect, isShuttle, isMultiM
       `}
     >
       <div className="flex justify-between items-start w-full">
-        <span className={`${isShuttle ? 'text-[9px] md:text-xs' : 'text-[10px] md:text-sm'} font-mono opacity-60 leading-none font-bold`}>
-          {isShuttle ? depthDisplay : locCode}
+        <span className={`${isShuttle ? 'text-[9px] md:text-xs tracking-tighter' : 'text-[10px] md:text-sm'} font-mono opacity-60 leading-none font-bold truncate pr-1`}>
+          {locCode}
         </span>
         {isSelected && <CheckCircle2 size={14} className="text-blue-400 absolute top-1 right-1" />}
-        {!isEmpty && !isSelected && <Box size={isShuttle ? 8 : 10} className="text-purple-300 opacity-70 md:w-5 md:h-5"/>}
+        {!isEmpty && !isSelected && <Box size={isShuttle ? 8 : 10} className="text-purple-300 opacity-70 md:w-5 md:h-5 shrink-0"/>}
       </div>
       
       {isEmpty ? (
@@ -60,6 +91,18 @@ const SimpleCell = ({ locCode, inventory, isEmpty, onSelect, isShuttle, isMultiM
             )}
         </div>
       )}
+
+      {/* 🚀 [신규] 품목명 말풍선 (Tooltip) - PC Hover & 모바일 Tap 연동 */}
+      {(!isEmpty && !isSelected) && (
+          <div className={`absolute bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-max max-w-[150px] bg-white text-black p-2.5 rounded-lg shadow-2xl z-50 pointer-events-none transition-all duration-200 
+              ${isMobilePreview ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-2 scale-95 md:group-hover:opacity-100 md:group-hover:translate-y-0 md:group-hover:scale-100'}
+          `}>
+              <div className="font-bold text-xs leading-tight whitespace-normal text-center">{itemName}</div>
+              <div className="text-[10px] text-gray-500 mt-1 text-center font-mono">LOT: {inventory[0]?.lot_no}</div>
+              {/* 말풍선 꼬리 */}
+              <div className="absolute top-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-t-white"></div>
+          </div>
+      )}
     </button>
   );
 };
@@ -72,7 +115,6 @@ interface Props {
   onSelectMulti?: (locIds: string[]) => void;
 }
 
-// 🚀 [추가] 'AISLE_VIEW' 단계 추가
 type ViewStep = 'ZONES' | 'RACKS' | 'CELLS' | 'SHUTTLE_LEVELS' | 'AISLE_VIEW';
 type WarehouseType = 'PRODUCTION' | 'LOGISTICS';
 
@@ -179,18 +221,18 @@ export default function LocationMapSelector({ onClose, onSelect, isMultiMode = f
         });
     }
 
-    // 🚀 [신규: 다중 모드 - 일반랙 통로 측면도]
+    // [다중 모드 - 일반랙 통로 측면도]
     let aLevels: string[] = [];
     let aRacks: string[] = [];
     let aGrid: Record<string, any> = {};
 
     if (isMultiMode && !isShuttleZone(selectedZone)) {
         const aisleLocs = filteredLocs.filter(l => l.zone === selectedZone && l.side === selectedSide);
-        aLevels = Array.from(new Set(aisleLocs.map(l => l.level_no))).sort((a, b) => Number(b) - Number(a)); // 4F, 3F, 2F, 1F 순
+        aLevels = Array.from(new Set(aisleLocs.map(l => l.level_no))).sort((a, b) => Number(b) - Number(a)); 
         aRacks = Array.from(new Set(aisleLocs.map(l => l.rack_no))).sort();
 
         aisleLocs.forEach(l => {
-            aGrid[`${l.rack_no}-${l.level_no}`] = l; // Grid Key: Rack-Level
+            aGrid[`${l.rack_no}-${l.level_no}`] = l; 
         });
     }
 
@@ -201,7 +243,7 @@ export default function LocationMapSelector({ onClose, onSelect, isMultiMode = f
         zoneStats: zStats,
         rackStats: rStats,
         shuttleData: { levels: sLevels, racks: sRacks, depths: sDepths, grid: sGrid },
-        aisleData: { levels: aLevels, racks: aRacks, grid: aGrid } // 🚀 통로 뷰 데이터
+        aisleData: { levels: aLevels, racks: aRacks, grid: aGrid }
     };
   }, [locations, warehouseType, selectedZone, selectedRack, selectedSide, selectedLevel, isMultiMode]);
 
@@ -212,7 +254,6 @@ export default function LocationMapSelector({ onClose, onSelect, isMultiMode = f
           setSelectedLevel("1"); 
           setStep('SHUTTLE_LEVELS');
       } else {
-          // 🚀 [핵심 분기] 멀티 모드면 열 선택을 건너뛰고 바로 통로 뷰로 진입
           if (isMultiMode) {
               setSelectedSide("1");
               setStep('AISLE_VIEW');
@@ -253,7 +294,7 @@ export default function LocationMapSelector({ onClose, onSelect, isMultiMode = f
       <div className="bg-[#0a0a0a] border border-gray-800 rounded-2xl w-full max-w-6xl h-[95vh] md:h-[90vh] flex flex-col shadow-2xl overflow-hidden font-[family-name:var(--font-geist-sans)]">
         
         {/* 헤더 */}
-        <div className="px-4 py-3 border-b border-gray-800 bg-[#111] flex flex-col gap-3 shrink-0">
+        <div className="px-4 py-3 border-b border-gray-800 bg-[#111] flex flex-col gap-3 shrink-0 relative z-20">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-3">
                 {step !== 'ZONES' && (
@@ -294,7 +335,6 @@ export default function LocationMapSelector({ onClose, onSelect, isMultiMode = f
              </div>
           )}
 
-          {/* 🚀 일반 랙의 단일 모드(CELLS) 또는 다중 모드(AISLE_VIEW)일 때 Side 선택 탭 표시 */}
           {(step === 'CELLS' || step === 'AISLE_VIEW') && (
              <div className="flex bg-black p-1 rounded-lg border border-gray-800 self-center w-full max-w-xs">
                 <button onClick={() => setSelectedSide('1')} className={`flex-1 py-1.5 rounded text-xs md:text-sm font-bold transition-all ${selectedSide === '1' ? 'bg-purple-600 text-white' : 'text-gray-500 hover:text-white'}`}>Side 1</button>
@@ -318,7 +358,7 @@ export default function LocationMapSelector({ onClose, onSelect, isMultiMode = f
         </div>
 
         {/* 본문 컨텐츠 */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-3 md:p-6 bg-black relative">
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-3 md:p-6 bg-black relative z-10">
             {loading ? (
                 <div className="h-full flex flex-col items-center justify-center text-gray-500 gap-2">
                     <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -366,7 +406,6 @@ export default function LocationMapSelector({ onClose, onSelect, isMultiMode = f
                         </div>
                     )}
 
-                    {/* [VIEW 3] 단일 모드 - 특정 랙의 셀 리스트 */}
                     {step === 'CELLS' && (
                         <div className="space-y-4 md:space-y-6">
                             {Array.from(new Set(cellsInRack.map(c => Number(c.level_no)))).sort((a,b) => b-a).map(lvl => (
@@ -392,33 +431,24 @@ export default function LocationMapSelector({ onClose, onSelect, isMultiMode = f
                         </div>
                     )}
 
-                    {/* [VIEW 4] 🚀 다중 모드 - 통로 전체 측면도 (Aisle View) */}
                     {step === 'AISLE_VIEW' && (
-                        <div className="w-full overflow-x-auto custom-scrollbar pb-4">
-                            <div className="min-w-max flex flex-col gap-1">
-                                {/* Y축 (Level) 헤더 및 그리드 */}
+                        <div className="w-full overflow-x-auto custom-scrollbar pb-4 pt-2">
+                            <div className="min-w-max flex flex-col gap-1.5">
                                 {aisleData.levels.map(lvl => (
-                                    <div key={`level-${lvl}`} className="flex gap-1 items-center">
+                                    <div key={`level-${lvl}`} className="flex gap-1.5 items-center">
                                         <div className="w-8 md:w-10 text-[10px] md:text-xs text-gray-500 font-bold text-center shrink-0">
                                             {lvl}F
                                         </div>
                                         
                                         {aisleData.racks.map(r => {
                                             const cellData = aisleData.grid[`${r}-${lvl}`];
-                                            
-                                            if (!cellData) {
-                                                return <div key={`empty-${r}-${lvl}`} className="w-16 md:w-20 h-14 md:h-24 bg-transparent border border-gray-800/30 border-dashed rounded opacity-30"></div>;
-                                            }
-
+                                            if (!cellData) return <div key={`empty-${r}-${lvl}`} className="w-16 md:w-20 h-14 md:h-24 bg-transparent border border-gray-800/30 border-dashed rounded opacity-30"></div>;
                                             const qty = cellData.inventory?.reduce((acc:any, cur:any) => acc + cur.quantity, 0) || 0;
                                             return (
                                                 <div key={cellData.loc_id} className="w-16 md:w-20">
                                                     <SimpleCell 
-                                                        locCode={cellData.loc_id}
-                                                        inventory={cellData.inventory || []}
-                                                        isEmpty={qty === 0}
-                                                        onSelect={handleCellClick}
-                                                        isMultiMode={isMultiMode}
+                                                        locCode={cellData.loc_id} inventory={cellData.inventory || []} isEmpty={qty === 0}
+                                                        onSelect={handleCellClick} isMultiMode={isMultiMode}
                                                         isSelected={selectedLocs.includes(cellData.loc_id)}
                                                     />
                                                 </div>
@@ -427,8 +457,7 @@ export default function LocationMapSelector({ onClose, onSelect, isMultiMode = f
                                     </div>
                                 ))}
 
-                                {/* X축 (Rack 번호) 하단 레이블 */}
-                                <div className="flex gap-1 items-center mt-2 border-t border-gray-800 pt-2">
+                                <div className="flex gap-1.5 items-center mt-2 border-t border-gray-800 pt-2">
                                     <div className="w-8 md:w-10 shrink-0"></div>
                                     {aisleData.racks.map(r => (
                                         <div key={`label-${r}`} className="w-16 md:w-20 text-center font-bold text-purple-500 text-[10px] md:text-sm">
@@ -440,29 +469,21 @@ export default function LocationMapSelector({ onClose, onSelect, isMultiMode = f
                         </div>
                     )}
 
-                    {/* [VIEW 5] 셔틀랙 Top-Down 평면도 */}
                     {step === 'SHUTTLE_LEVELS' && (
-                        <div className="w-full overflow-x-auto custom-scrollbar pb-4">
-                            <div className="min-w-max flex flex-col gap-1">
+                        <div className="w-full overflow-x-auto custom-scrollbar pb-4 pt-2">
+                            <div className="min-w-max flex flex-col gap-1.5">
                                 {shuttleData.depths.map(d => (
-                                    <div key={`depth-${d}`} className="flex gap-1 items-center">
+                                    <div key={`depth-${d}`} className="flex gap-1.5 items-center">
                                         <div className="w-6 text-[10px] text-gray-600 font-mono text-center shrink-0">D{d}</div>
                                         {shuttleData.racks.map(r => {
                                             const cellData = shuttleData.grid[`${r}-${d}`];
-                                            if (!cellData) {
-                                                return <div key={`empty-${r}-${d}`} className="w-16 md:w-20 h-12 md:h-16 bg-transparent border border-gray-800/30 border-dashed rounded opacity-30"></div>;
-                                            }
-
+                                            if (!cellData) return <div key={`empty-${r}-${d}`} className="w-16 md:w-20 h-12 md:h-16 bg-transparent border border-gray-800/30 border-dashed rounded opacity-30"></div>;
                                             const qty = cellData.inventory?.reduce((acc:any, cur:any) => acc + cur.quantity, 0) || 0;
                                             return (
-                                                <div key={cellData.loc_id} className="w-16 md:w-20">
+                                                <div key={cellData.loc_id} className="w-16 md:w-20 relative">
                                                     <SimpleCell 
-                                                        locCode={cellData.loc_id}
-                                                        inventory={cellData.inventory || []}
-                                                        isEmpty={qty === 0}
-                                                        onSelect={handleCellClick}
-                                                        isShuttle={true}
-                                                        isMultiMode={isMultiMode}
+                                                        locCode={cellData.loc_id} inventory={cellData.inventory || []} isEmpty={qty === 0}
+                                                        onSelect={handleCellClick} isShuttle={true} isMultiMode={isMultiMode}
                                                         isSelected={selectedLocs.includes(cellData.loc_id)}
                                                     />
                                                 </div>
@@ -471,7 +492,7 @@ export default function LocationMapSelector({ onClose, onSelect, isMultiMode = f
                                     </div>
                                 ))}
 
-                                <div className="flex gap-1 items-center mt-2 border-t border-gray-800 pt-2">
+                                <div className="flex gap-1.5 items-center mt-2 border-t border-gray-800 pt-2">
                                     <div className="w-6 shrink-0"></div>
                                     {shuttleData.racks.map(r => (
                                         <div key={`label-${r}`} className="w-16 md:w-20 text-center font-black text-yellow-600 text-sm md:text-base">
