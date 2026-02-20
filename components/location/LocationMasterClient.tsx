@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/utils/supabase/client";
 import { Plus, Power, Loader2, LayoutGrid, Layers, Factory, ChevronRight, ArrowRight, Save, Table as TableIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
+// 🚀 [추가] UIProvider 훅
+import { useUI } from "@/context/UIProvider";
 
 interface Props {
   initialLocations: any[];
@@ -12,6 +14,9 @@ interface Props {
 export default function LocationMasterClient({ initialLocations }: Props) {
   const supabase = createClient();
   const router = useRouter();
+  
+  // 🚀 [추가] UIContext 기능 활성화 (이름 충돌 방지용 별칭 사용)
+  const { toast, alert: uiAlert, confirm: uiConfirm } = useUI();
   
   // --- [1. 상태 관리] ---
   const [loading, setLoading] = useState(false);
@@ -52,6 +57,7 @@ export default function LocationMasterClient({ initialLocations }: Props) {
       setAllLocations(completeData);
     } catch (err) {
       console.error("데이터 로딩 중 오류:", err);
+      toast.error("전체 데이터 로딩 실패"); // 🚀 토스트 적용
     } finally {
       setLoading(false);
     }
@@ -88,15 +94,26 @@ export default function LocationMasterClient({ initialLocations }: Props) {
     return chars;
   };
 
-  // --- [4. 로케이션 생성 핸들러] ---
+  // --- [4. 로케이션 생성 핸들러 (UIProvider 적용)] ---
   const handleCreate = async (isBulk: boolean) => {
+    // 1. 유효성 검사 (Alert 모달)
     if (!config.zone || !config.startRack || !config.level) {
-      return alert("필수 정보(Zone, Start Rack, Level)를 입력해주세요.");
+      return uiAlert("필수 정보(Zone, Rack, Level)를 입력해주세요.", "warning");
     }
+
+    // 2. 생성 전 확인 (Confirm 모달)
+    const rackList = isBulk ? charRange(config.startRack, config.endRack) : [config.startRack.toUpperCase()];
+    const count = rackList.length * (isBulk ? 2 : 1);
+    
+    const msg = isBulk 
+      ? `${config.zone}존 ${config.startRack}~${config.endRack}열 (${count}개) 로케이션을 생성하시겠습니까?`
+      : `${config.zone}${config.startRack}${config.level} 로케이션을 생성하시겠습니까?`;
+
+    const ok = await uiConfirm(msg, "info");
+    if (!ok) return;
 
     setLoading(true);
     const newLocs: any[] = [];
-    const rackList = isBulk ? charRange(config.startRack, config.endRack) : [config.startRack.toUpperCase()];
 
     for (const rChar of rackList) {
       const sides = isBulk ? ["1", "2"] : [config.side];
@@ -109,15 +126,38 @@ export default function LocationMasterClient({ initialLocations }: Props) {
     }
 
     const { error } = await supabase.from("loc_master").insert(newLocs);
-    if (error) alert(error.code === '23505' ? "이미 존재하는 로케이션 ID가 포함되어 있습니다." : error.message);
-    else { alert(`${newLocs.length}개의 로케이션이 생성되었습니다.`); fetchTotalData(); router.refresh(); }
+    
+    if (error) {
+      const errMsg = error.code === '23505' ? "이미 존재하는 로케이션 ID가 포함되어 있습니다." : error.message;
+      uiAlert(errMsg, "error");
+    } else { 
+      await uiAlert(`${newLocs.length}개의 로케이션이 생성되었습니다.`, "success"); // 성공 알림 모달
+      fetchTotalData(); 
+      router.refresh(); 
+    }
     setLoading(false);
   };
 
-  // --- [5. 활성/비활성 토글 핸들러] ---
+  // --- [5. 활성/비활성 토글 핸들러 (Confirm 적용)] ---
   const handleToggleActive = async (loc_id: string, currentFlag: string) => {
-    const { error } = await supabase.from("loc_master").update({ active_flag: currentFlag === 'Y' ? 'N' : 'Y' }).eq("loc_id", loc_id);
-    if (!error) { fetchTotalData(); router.refresh(); }
+    const action = currentFlag === 'Y' ? "비활성화" : "활성화";
+    
+    // 실수 방지 확인 모달
+    const ok = await uiConfirm(`${loc_id}를 ${action} 하시겠습니까?`, "warning");
+    if (!ok) return;
+
+    const { error } = await supabase
+      .from("loc_master")
+      .update({ active_flag: currentFlag === 'Y' ? 'N' : 'Y' })
+      .eq("loc_id", loc_id);
+    
+    if (!error) { 
+      toast.success("상태 변경 완료"); 
+      fetchTotalData(); 
+      router.refresh(); 
+    } else {
+      toast.error("변경 실패");
+    }
   };
 
   return (
@@ -241,7 +281,7 @@ export default function LocationMasterClient({ initialLocations }: Props) {
                </thead>
                <tbody className="divide-y divide-gray-800/50">
                  {filteredLocs.length === 0 ? (
-                    <tr><td colSpan={7} className="text-center py-20 text-gray-600 text-xs">데이터가 없습니다.</td></tr>
+                   <tr><td colSpan={7} className="text-center py-20 text-gray-600 text-xs">데이터가 없습니다.</td></tr>
                  ) : (
                    filteredLocs.map(loc => {
                      const qty = loc.inventory?.reduce((acc: number, cur: any) => acc + cur.quantity, 0) || 0;

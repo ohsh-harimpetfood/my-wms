@@ -58,7 +58,8 @@ export default function LoginPage() {
       <LoginBg />
 
       {/* 🚀 [수정] z-10 추가 (배경 위로 띄우기) */}
-      <div className="relative z-10 w-full max-w-md bg-gray-900/80 backdrop-blur-md border border-gray-800 p-8 rounded-2xl shadow-2xl animate-fade-in-up">
+      {/* 모바일에서는 bg-gray-900/60 (반투명), md 이상에서는 bg-gray-900/80 (기존) */}
+      <div className="relative z-10 w-full max-w-md bg-gray-900/20 md:bg-gray-900/20 backdrop-blur-md border border-gray-800 p-8 rounded-2xl shadow-2xl animate-fade-in-up">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-white mb-2 flex items-center justify-center gap-2">
             <Lock className="text-blue-500" /> My WMS Login

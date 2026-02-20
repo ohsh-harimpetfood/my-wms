@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/utils/supabase/client";
-import { Plus, Power, Loader2, LayoutGrid, Layers, Factory, ChevronRight } from "lucide-react";
+import { Power, Loader2, LayoutGrid, Layers, Factory, ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useUI } from "@/context/UIProvider"; // 1. Import 확인
 
 interface Props {
   initialLocations: any[];
@@ -13,16 +14,18 @@ export default function LocationMasterClient({ initialLocations }: Props) {
   const supabase = createClient();
   const router = useRouter();
   
-  // 1. 상태 관리
+  // 🚀 2. 여기서 useUI 훅을 호출하여 'alert'와 'confirm'을 꺼내옵니다.
+  // 이름 충돌 방지를 위해 uiAlert, uiConfirm으로 별칭을 사용합니다.
+  const { toast, alert: uiAlert, confirm: uiConfirm } = useUI();
+  
   const [loading, setLoading] = useState(false);
-  const [allLocations, setAllLocations] = useState<any[]>(initialLocations); // 전체 데이터 저장용
+  const [allLocations, setAllLocations] = useState<any[]>(initialLocations); 
   const [mainTab, setMainTab] = useState<'PRODUCTION' | 'LOGISTICS'>('PRODUCTION');
   const [selectedZone, setSelectedZone] = useState<string>("");
   const [config, setConfig] = useState({
     zone: "", startRack: "", endRack: "", level: "", side: "1",
   });
 
-  // 🔄 [핵심] 1,000건 제한을 넘어 전체 데이터를 로드하는 로직
   const fetchTotalData = async () => {
     setLoading(true);
     let completeData: any[] = [];
@@ -50,40 +53,33 @@ export default function LocationMasterClient({ initialLocations }: Props) {
       setAllLocations(completeData);
     } catch (err) {
       console.error("전체 데이터 로드 중 오류:", err);
+      toast.error("데이터 동기화 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
   };
 
-  // 초기 렌더링 시 데이터가 1000개 이상일 가능성이 크므로 전체 로드 실행
   useEffect(() => {
     fetchTotalData();
   }, []);
 
-  // --- 🏗️ [데이터 계층화 필터링 로직] ---
-  // 이제 initialLocations 대신 "allLocations"를 사용합니다.
   const { zones, filteredLocs } = useMemo(() => {
-    // 1단계 필터: 생산(A~S) vs 물류(2F)
     const tabFiltered = allLocations.filter(l => {
       const isLogis = l.zone === '2F' || l.loc_id.startsWith('2F');
       return mainTab === 'PRODUCTION' ? !isLogis : isLogis;
     });
 
-    // 2단계: 현재 탭 내의 Zone 리스트 추출
     const zoneList = Array.from(new Set(tabFiltered.map(l => l.zone || "ETC"))).sort();
     
-    // 탭 변경 시 선택된 Zone이 없거나 리스트에 없으면 첫 번째 Zone 자동 선택
     const currentZone = (selectedZone && zoneList.includes(selectedZone)) 
       ? selectedZone 
       : (zoneList.length > 0 ? zoneList[0] : "");
 
-    // 3단계: 선택된 Zone에 해당하는 최종 리스트
     const finalLocs = tabFiltered.filter(l => (l.zone || "ETC") === currentZone);
 
     return { zones: zoneList, filteredLocs: finalLocs, currentZone };
   }, [allLocations, mainTab, selectedZone]);
 
-  // 알파벳 범위 생성 헬퍼
   const charRange = (start: string, end: string) => {
     const startCode = start.toUpperCase().charCodeAt(0);
     const endCode = end.toUpperCase().charCodeAt(0);
@@ -92,12 +88,27 @@ export default function LocationMasterClient({ initialLocations }: Props) {
     return chars;
   };
 
-  // 위치 생성 핸들러
+  // 🚀 3. 위치 생성 핸들러 (alert -> uiAlert 교체 완료)
   const handleCreate = async (isBulk: boolean) => {
-    if (!config.zone || !config.startRack || !config.level) return alert("필수 정보를 입력해주세요.");
+    if (!config.zone || !config.startRack || !config.level) {
+      // ❌ return alert(...)  <-- 기존 코드
+      // ✅ return uiAlert(...) <-- 수정된 코드 (커스텀 모달)
+      return uiAlert("필수 정보(Zone, Start Rack, Level)를 입력해주세요.", "warning");
+    }
+
+    const rackList = isBulk ? charRange(config.startRack, config.endRack) : [config.startRack.toUpperCase()];
+    const totalCount = rackList.length * (isBulk ? 2 : 1);
+    
+    const confirmMsg = isBulk 
+      ? `${config.zone}존 ${config.startRack}~${config.endRack}열 (${totalCount}개) 위치를 생성하시겠습니까?`
+      : `${config.zone}${config.startRack}${config.level} 위치를 생성하시겠습니까?`;
+
+    // ✅ uiConfirm 사용
+    const ok = await uiConfirm(confirmMsg, "info");
+    if (!ok) return;
+
     setLoading(true);
     const newLocs: any[] = [];
-    const rackList = isBulk ? charRange(config.startRack, config.endRack) : [config.startRack.toUpperCase()];
 
     for (const rChar of rackList) {
       const sides = isBulk ? ["1", "2"] : [config.side];
@@ -108,30 +119,45 @@ export default function LocationMasterClient({ initialLocations }: Props) {
         });
       }
     }
+
     const { error } = await supabase.from("loc_master").insert(newLocs);
-    if (error) alert(error.message);
-    else { 
-      alert("등록 완료"); 
-      fetchTotalData(); // 데이터 생성 후 클라이언트 상태도 동기화
+    
+    if (error) {
+      // ✅ uiAlert 사용
+      uiAlert(`등록 실패: ${error.message}`, "error");
+    } else { 
+      // ✅ toast 사용
+      toast.success(`${newLocs.length}건 등록 완료`); 
+      fetchTotalData(); 
       router.refresh(); 
     }
     setLoading(false);
   };
 
-  // 활성화 상태 토글 핸들러
+  // 🚀 4. 활성화 상태 토글 핸들러 (uiConfirm 교체 완료)
   const handleToggleActive = async (loc_id: string, currentFlag: string) => {
+    const action = currentFlag === 'Y' ? "비활성화" : "활성화";
+    
+    // ✅ uiConfirm 사용
+    const ok = await uiConfirm(`${loc_id} 위치를 ${action} 하시겠습니까?`, "warning");
+    if (!ok) return;
+
     const { error } = await supabase
       .from("loc_master")
       .update({ active_flag: currentFlag === 'Y' ? 'N' : 'Y' })
       .eq("loc_id", loc_id);
+    
     if (!error) {
-      fetchTotalData(); // 상태 변경 후 즉시 데이터 재로드
+      toast.success(`상태가 변경되었습니다.`);
+      fetchTotalData();
       router.refresh();
+    } else {
+      toast.error("상태 변경 실패");
     }
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in pb-20">
       {/* 🛠️ [생성 도구 섹션] */}
       <div className="bg-[#111] border border-gray-800 p-6 rounded-2xl shadow-2xl">
         <h3 className="text-white font-bold mb-5 flex items-center gap-2 text-sm uppercase tracking-wider">
@@ -162,7 +188,7 @@ export default function LocationMasterClient({ initialLocations }: Props) {
 
       {/* 🏗️ [다중 계층 탭 뷰어 섹션] */}
       <div className="bg-[#0a0a0a] border border-gray-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col h-[650px]">
-        {/* 상단 현황 바 추가 */}
+        {/* 상단 현황 바 */}
         <div className="flex items-center justify-between px-6 py-2 bg-[#161616] border-b border-gray-800">
            <span className="text-[10px] font-mono text-gray-500">DATABASE STATUS: ONLINE</span>
            <span className="text-[10px] font-mono text-blue-500">TOTAL LOCS: {allLocations.length}</span>
@@ -221,10 +247,10 @@ export default function LocationMasterClient({ initialLocations }: Props) {
                         {loc.rack_no}열 / {loc.level_no}단 / SIDE-{loc.side}
                       </div>
                       <div className="mt-2 pt-2 border-t border-gray-800 flex justify-between items-center">
-                         <span className={`text-[9px] font-black px-2 py-0.5 rounded ${loc.active_flag === 'Y' ? 'bg-green-900/20 text-green-500' : 'bg-red-900/20 text-red-500'}`}>
-                           {loc.active_flag === 'Y' ? 'ACTIVE' : 'INACTIVE'}
-                         </span>
-                         <span className="text-[9px] text-gray-600 font-mono">QTY: {loc.inventory?.[0]?.quantity || 0}</span>
+                          <span className={`text-[9px] font-black px-2 py-0.5 rounded ${loc.active_flag === 'Y' ? 'bg-green-900/20 text-green-500' : 'bg-red-900/20 text-red-500'}`}>
+                            {loc.active_flag === 'Y' ? 'ACTIVE' : 'INACTIVE'}
+                          </span>
+                          <span className="text-[9px] text-gray-600 font-mono">QTY: {loc.inventory?.[0]?.quantity || 0}</span>
                       </div>
                     </div>
                   ))

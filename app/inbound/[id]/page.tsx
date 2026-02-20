@@ -3,9 +3,8 @@
 import { createClient } from "@/utils/supabase/client";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
-import { ArrowLeft, Search, Check, Calendar, Hash, Package, AlertCircle } from "lucide-react"; 
+import { ArrowLeft, Search, Check, Calendar, Hash, Package, AlertCircle, Layers } from "lucide-react"; 
 import { InboundDetail, Item } from "@/types";
-// 🚀 [수정] 맵 셀렉터로 교체
 import LocationMapSelector from "@/components/LocationMapSelector"; 
 import { TX_TYPES, TxCode } from "@/constants/transaction";
 import { useAuth } from "@/context/AuthProvider";
@@ -35,7 +34,7 @@ export default function InboundWorkPage() {
   const router = useRouter();
   const supabase = createClient();
   const { user } = useAuth();
-  const { toast, confirm } = useUI(); 
+  const { toast, confirm, alert: uiAlert } = useUI(); 
 
   const SUB_MATERIAL_TYPE = '부자재';
 
@@ -45,14 +44,20 @@ export default function InboundWorkPage() {
 
   // 작업 입력 상태
   const [selectedDetail, setSelectedDetail] = useState<InboundDetailWithItem | null>(null);
-  const [locationCode, setLocationCode] = useState("");
+  
+  // 🚀 [추가] 다중 입고 상태 관리
+  const [isMultiMode, setIsMultiMode] = useState(false);
+  const [unitQty, setUnitQty] = useState(""); // 1셀당 들어갈 기준 수량
+  const [selectedLocs, setSelectedLocs] = useState<string[]>([]); // 다중 선택된 위치들
+
+  const [locationCode, setLocationCode] = useState(""); // 단일 선택 위치
   const [lotNo, setLotNo] = useState("");
   const [inputQty, setInputQty] = useState("");
   const [expDate, setExpDate] = useState("");
+  
   const [processing, setProcessing] = useState(false);
   const [showLocModal, setShowLocModal] = useState(false);
   
-  // 폼으로 스크롤 이동을 위한 Ref
   const formRef = useRef<HTMLDivElement>(null);
 
   // 1. 데이터 불러오기
@@ -79,7 +84,12 @@ export default function InboundWorkPage() {
     
     const remainQty = detail.plan_qty - detail.received_qty;
     setInputQty(String(remainQty > 0 ? remainQty : 0));
+    
+    // 🚀 선택 초기화
     setLocationCode(""); 
+    setSelectedLocs([]);
+    setIsMultiMode(false);
+    setUnitQty("");
 
     const isSub = detail.item_master.item_type === SUB_MATERIAL_TYPE || detail.item_master.lot_required === 'N';
     if (isSub) {
@@ -90,7 +100,6 @@ export default function InboundWorkPage() {
         setExpDate('');
     }
 
-    // 모바일 스크롤 이동
     if (window.innerWidth < 1024) {
         setTimeout(() => {
             formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -104,14 +113,35 @@ export default function InboundWorkPage() {
     setInputQty(sanitized);
   };
 
-  // 3. 입고 실행
+  const handleUnitQtyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    const sanitized = val.replace(/[^0-9]/g, '');
+    setUnitQty(sanitized);
+  };
+
+  // 🚀 [추가] 필요한 셀 개수 계산 로직
+  const totalInputQty = Number(inputQty) || 0;
+  const unitQtyNum = Number(unitQty) || 0;
+  const requiredCells = (isMultiMode && unitQtyNum > 0 && totalInputQty > 0) 
+    ? Math.ceil(totalInputQty / unitQtyNum) 
+    : 0;
+
+  // 3. 입고 실행 (🚀 다중/단일 분기 처리)
   const handleConfirm = async () => {
     if (!user) return toast.error("로그인 정보가 없습니다.");
     if (!selectedDetail) return toast.error("작업할 품목을 선택해주세요.");
-    if (!locationCode) return toast.error("적치할 위치를 입력해주세요.");
     
     const qtyNum = Number(inputQty);
     if (!qtyNum || qtyNum <= 0) return toast.error("유효한 수량을 입력해주세요.");
+
+    // 유효성 검사 분기
+    if (isMultiMode) {
+        if (!unitQtyNum || unitQtyNum <= 0) return toast.error("기준 단위 수량을 입력해주세요.");
+        if (selectedLocs.length === 0) return toast.error("적치할 위치를 선택해주세요.");
+        if (selectedLocs.length !== requiredCells) return uiAlert(`위치 ${requiredCells}개를 정확히 선택해주세요.\n현재 ${selectedLocs.length}개 선택됨.`, "warning");
+    } else {
+        if (!locationCode) return toast.error("적치할 위치를 입력해주세요.");
+    }
 
     const currentReceived = selectedDetail.received_qty;
     
@@ -130,70 +160,86 @@ export default function InboundWorkPage() {
         if (!expDate) return toast.warning("유통기한을 입력해주세요.");
     }
 
-    // 최종 확인
-    const ok = await confirm(
-        `[입고 확정]\n품목: ${selectedDetail.item_master.item_name}\n수량: ${qtyNum}\n위치: ${locationCode}\n\n저장하시겠습니까?`, 
-        "info"
-    );
+    // 최종 확인 (다중/단일 메시지 분리)
+    const msg = isMultiMode 
+      ? `[다중 분할 입고 확정]\n품목: ${selectedDetail.item_master.item_name}\n총 수량: ${qtyNum}\n분배 위치: ${selectedLocs.length}개 셀\n\n저장하시겠습니까?`
+      : `[입고 확정]\n품목: ${selectedDetail.item_master.item_name}\n수량: ${qtyNum}\n위치: ${locationCode}\n\n저장하시겠습니까?`;
+      
+    const ok = await confirm(msg, "info");
     if (!ok) return;
 
     setProcessing(true);
     try {
-      const newReceivedQty = Number(selectedDetail.received_qty) + qtyNum;
+      // 🚀 분배 로직 배열 생성
+      const distribution = isMultiMode 
+        ? selectedLocs.map((loc, idx) => {
+            const isLast = idx === selectedLocs.length - 1;
+            const remain = qtyNum - (unitQtyNum * idx);
+            const allocQty = isLast ? remain : unitQtyNum;
+            return { locId: loc, qty: allocQty };
+          })
+        : [{ locId: locationCode, qty: qtyNum }];
 
-      // A. 재고 등록 (UPSERT)
-      const { data: existInven } = await supabase.from("inventory").select("id, quantity")
-        .eq("location_code", locationCode)
-        .eq("item_key", selectedDetail.item_key)
-        .eq("lot_no", lotNo || 'DEFAULT')
-        .maybeSingle();
+      const nowISO = new Date().toISOString();
 
-      if (existInven) {
-        await supabase.from("inventory").update({
-          quantity: existInven.quantity + qtyNum, 
-          updated_at: new Date().toISOString(),
-          updated_by: user.id 
-        }).eq("id", existInven.id);
-      } else {
-        await supabase.from("inventory").insert({
-          location_code: locationCode, 
-          item_key: selectedDetail.item_key, 
-          quantity: qtyNum,
-          lot_no: lotNo || 'DEFAULT', 
-          exp_date: expDate || null, 
-          status: 'AVAILABLE',
-          updated_by: user.id 
-        });
-      }
+      // 🚀 Promise.all을 활용한 안전한 일괄 처리
+      await Promise.all(distribution.map(async (dist) => {
+          // A. 재고 등록 (UPSERT 검사)
+          const { data: existInven } = await supabase.from("inventory").select("id, quantity")
+            .eq("location_code", dist.locId)
+            .eq("item_key", selectedDetail.item_key)
+            .eq("lot_no", lotNo || 'DEFAULT')
+            .maybeSingle();
+
+          if (existInven) {
+            await supabase.from("inventory").update({
+              quantity: existInven.quantity + dist.qty, 
+              updated_at: nowISO,
+              updated_by: user.id 
+            }).eq("id", existInven.id);
+          } else {
+            await supabase.from("inventory").insert({
+              location_code: dist.locId, 
+              item_key: selectedDetail.item_key, 
+              quantity: dist.qty,
+              lot_no: lotNo || 'DEFAULT', 
+              exp_date: expDate || null, 
+              status: 'AVAILABLE',
+              inbound_date: nowISO,
+              updated_at: nowISO,
+              updated_by: user.id 
+            });
+          }
+
+          // C. 수불 이력
+          await supabase.from("stock_tx").insert({
+            transaction_type: 'INBOUND',
+            io_type: 'IN',
+            tx_code: master?.inbound_type || 'IN_ETC',
+            location_code: dist.locId,
+            item_key: selectedDetail.item_key,
+            quantity: dist.qty,
+            lot_no: lotNo || 'DEFAULT',
+            ref_doc_no: String(id),
+            remark: isMultiMode ? `분할입고작업: ${master?.supplier_name}` : `입고작업: ${master?.supplier_name}`,
+            created_by: user.id
+          });
+      }));
 
       // B. 입고 상세 업데이트
+      const newReceivedQty = Number(selectedDetail.received_qty) + qtyNum;
       const newDetailStatus = newReceivedQty >= selectedDetail.plan_qty ? 'COMPLETED' : 'PENDING';
       await supabase.from("inbound_detail").update({ received_qty: newReceivedQty, status: newDetailStatus }).eq("id", selectedDetail.id);
-
-      // C. 수불 이력
-      await supabase.from("stock_tx").insert({
-        transaction_type: 'INBOUND',
-        io_type: 'IN',
-        tx_code: master?.inbound_type || 'IN_ETC',
-        location_code: locationCode,
-        item_key: selectedDetail.item_key,
-        quantity: qtyNum,
-        lot_no: lotNo || 'DEFAULT',
-        ref_doc_no: String(id),
-        remark: `입고작업: ${master?.supplier_name}`,
-        created_by: user.id
-      });
 
       // D. 마스터 상태 업데이트
       const { data: allDetails } = await supabase.from("inbound_detail").select("id, status").eq("inbound_no", id);
       if (allDetails) {
         const updatedDetails = allDetails.map(d => d.id === selectedDetail.id ? { ...d, status: newDetailStatus } : d);
         const isAllCompleted = updatedDetails.every(detail => detail.status === 'COMPLETED');
-        
         await supabase.from("inbound_master").update({ status: isAllCompleted ? 'CLOSED' : 'PARTIAL' }).eq("inbound_no", id);
       }
 
-      toast.success("성공적으로 입고되었습니다.");
+      toast.success("성공적으로 입고 처리되었습니다.");
       setSelectedDetail(null);
       fetchData(); 
 
@@ -213,7 +259,7 @@ export default function InboundWorkPage() {
   return (
     <div className="p-4 md:p-8 bg-black min-h-screen text-white font-[family-name:var(--font-geist-sans)] pb-32">
       
-      {/* 헤더 */}
+      {/* 헤더 (기존 동일) */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 border-b border-gray-800 pb-4 gap-4 sticky top-0 bg-black/90 backdrop-blur-sm z-30 pt-4">
         <div>
           <div className="flex items-center gap-3">
@@ -244,7 +290,7 @@ export default function InboundWorkPage() {
       
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
          
-         {/* 좌측: 입고 예정 목록 */}
+        {/* 좌측: 입고 예정 목록 (기존 동일) */}
         <div className="lg:col-span-2 space-y-2 md:space-y-3">
           <h2 className="text-base md:text-lg font-bold mb-2 flex items-center gap-2"><Check className="text-green-500" size={18}/> 작업 대상 목록</h2>
           {details.map((row) => {
@@ -305,28 +351,107 @@ export default function InboundWorkPage() {
                   <div className="text-xs text-gray-500 mb-1">선택된 품목</div>
                   <div className="font-bold text-lg md:text-xl text-blue-400 leading-tight">{selectedDetail.item_master.item_name}</div>
                   <div className="flex justify-between mt-2 text-sm text-gray-400 border-t border-gray-800 pt-2">
-                    <span>잔여 수량</span>
-                    <span className="text-white font-bold">{selectedDetail.plan_qty - selectedDetail.received_qty} {selectedDetail.item_master.uom}</span>
+                    <span>계획 / 잔여 수량</span>
+                    <span className="text-white font-bold">{selectedDetail.plan_qty} / <span className="text-yellow-400">{selectedDetail.plan_qty - selectedDetail.received_qty}</span></span>
                   </div>
                 </div>
 
-                {/* 입력 폼 */}
+                {/* 🚀 [추가] 총 입고 수량 입력 */}
                 <div>
-                  <label className="block text-sm text-gray-400 mb-2 font-bold">위치 (Location)</label>
-                  <div 
-                      className="flex items-center bg-black border border-blue-500 rounded-lg p-1 cursor-pointer hover:bg-gray-800 transition group h-14"
-                      onClick={() => setShowLocModal(true)}
-                  >
-                      <div className="pl-4 pr-2 text-gray-500 group-hover:text-blue-400"><Search size={20} /></div>
-                      <input 
-                          type="text" 
-                          placeholder="터치하여 선택"
-                          className="bg-transparent outline-none text-white font-mono text-xl w-full cursor-pointer placeholder-gray-600 uppercase h-full"
-                          value={locationCode}
-                          onChange={(e) => setLocationCode(e.target.value.toUpperCase())}
-                      />
-                  </div>
+                  <label className="block text-sm text-gray-400 mb-2 font-bold">입고 대상 총 수량</label>
+                  <input 
+                    type="number" inputMode="numeric" pattern="[0-9]*"
+                    className="w-full bg-black border border-gray-700 rounded-lg p-3 text-white focus:border-blue-500 outline-none text-2xl font-bold text-right placeholder-gray-800" 
+                    value={inputQty} 
+                    onChange={handleQtyChange}
+                    placeholder="0" 
+                  />
                 </div>
+
+                {/* 🚀 [추가] 모드 토글 스위치 */}
+                <div className="flex bg-black p-1 rounded-lg border border-gray-800 w-full mb-2">
+                    <button 
+                        onClick={() => setIsMultiMode(false)} 
+                        className={`flex-1 py-2 rounded text-xs md:text-sm font-bold transition-all ${!isMultiMode ? 'bg-gray-700 text-white shadow' : 'text-gray-500 hover:text-white'}`}
+                    >
+                        단일 위치 적재
+                    </button>
+                    <button 
+                        onClick={() => setIsMultiMode(true)} 
+                        className={`flex-1 flex items-center justify-center gap-1 py-2 rounded text-xs md:text-sm font-bold transition-all ${isMultiMode ? 'bg-blue-600 text-white shadow' : 'text-gray-500 hover:text-white'}`}
+                    >
+                        <Layers size={14}/> 다중 분할 적재
+                    </button>
+                </div>
+
+                {/* 🚀 위치 입력 컴포넌트 분기 */}
+                {isMultiMode ? (
+                    <div className="space-y-3 bg-blue-900/10 border border-blue-900/30 p-3 rounded-xl animate-fade-in">
+                        <div>
+                            <label className="block text-xs text-blue-300 mb-1 font-bold">단위 수량 (1개 위치당 적재량)</label>
+                            <input 
+                                type="number" inputMode="numeric" pattern="[0-9]*"
+                                className="w-full bg-black border border-blue-900/50 rounded-lg p-2.5 text-blue-100 focus:border-blue-500 outline-none text-lg font-bold text-right" 
+                                value={unitQty} 
+                                onChange={handleUnitQtyChange}
+                                placeholder="예: 500" 
+                            />
+                        </div>
+                        
+                        <div className="flex items-center justify-between text-xs text-gray-400">
+                            <span>필요한 위치 수:</span>
+                            <span className="font-bold text-white bg-gray-800 px-2 py-0.5 rounded">{requiredCells} 개</span>
+                        </div>
+
+                        <button 
+                            onClick={() => {
+                                if (requiredCells > 0) setShowLocModal(true);
+                                else uiAlert("총 수량과 단위 수량을 먼저 입력해주세요.", "warning");
+                            }}
+                            className="w-full py-3 bg-black border border-gray-700 hover:border-blue-500 rounded-lg flex items-center justify-between px-4 transition text-sm"
+                        >
+                            <span className="text-gray-400">위치 다중 선택하기</span>
+                            <div className="flex items-center gap-2">
+                                <span className={`font-bold ${selectedLocs.length === requiredCells && requiredCells > 0 ? 'text-green-400' : 'text-blue-400'}`}>
+                                    {selectedLocs.length} / {requiredCells}
+                                </span>
+                                <Search size={16} className="text-gray-500"/>
+                            </div>
+                        </button>
+
+                        {/* 선택된 위치 미리보기 */}
+                        {selectedLocs.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                                {selectedLocs.map((loc, idx) => {
+                                    const allocQty = (idx === selectedLocs.length - 1) ? totalInputQty - (unitQtyNum * idx) : unitQtyNum;
+                                    return (
+                                        <div key={loc} className="bg-blue-600/20 border border-blue-500/30 text-blue-300 text-[10px] px-2 py-1 rounded flex items-center gap-1">
+                                            <span className="font-mono font-bold">{loc}</span>
+                                            <span className="opacity-70">({allocQty})</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                ) : (
+                    <div>
+                        <label className="block text-sm text-gray-400 mb-2 font-bold">적재 위치 (Location)</label>
+                        <div 
+                            className="flex items-center bg-black border border-blue-500 rounded-lg p-1 cursor-pointer hover:bg-gray-800 transition group h-12"
+                            onClick={() => setShowLocModal(true)}
+                        >
+                            <div className="pl-3 pr-2 text-gray-500 group-hover:text-blue-400"><Search size={18} /></div>
+                            <input 
+                                type="text" 
+                                placeholder="터치하여 선택"
+                                className="bg-transparent outline-none text-white font-mono text-lg w-full cursor-pointer placeholder-gray-600 uppercase h-full"
+                                value={locationCode}
+                                onChange={(e) => setLocationCode(e.target.value.toUpperCase())}
+                            />
+                        </div>
+                    </div>
+                )}
 
                 <div className={`grid grid-cols-2 gap-3 transition-opacity ${isSubMaterial ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
                     <div>
@@ -354,19 +479,6 @@ export default function InboundWorkPage() {
                 
                 {isSubMaterial && <div className="text-xs text-center text-gray-500">* 부자재: LOT/유통기한 생략</div>}
 
-                <div>
-                  <label className="block text-sm text-gray-400 mb-2 font-bold">입고 수량</label>
-                  <input 
-                    type="number" 
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    className="w-full bg-black border border-gray-700 rounded-lg p-4 text-white focus:border-blue-500 outline-none text-4xl font-bold text-right h-20 placeholder-gray-800" 
-                    value={inputQty} 
-                    onChange={handleQtyChange}
-                    placeholder="0" 
-                  />
-                </div>
-
                 <div className="pt-2 gap-3 flex flex-col">
                     <button 
                         onClick={handleConfirm} 
@@ -390,11 +502,17 @@ export default function InboundWorkPage() {
       </div>
 
       {showLocModal && (
-        // 🚀 [수정] 맵 기반 선택기 적용
         <LocationMapSelector 
+            isMultiMode={isMultiMode}
             onClose={() => setShowLocModal(false)}
             onSelect={(locId) => {
+                // 단일 모드일 때만 호출됨
                 setLocationCode(locId);
+                setShowLocModal(false);
+            }}
+            onSelectMulti={(locIds) => {
+                // 다중 모드일 때 확정 버튼 누르면 호출됨
+                setSelectedLocs(locIds);
                 setShowLocModal(false);
             }}
         />
