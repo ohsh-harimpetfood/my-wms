@@ -16,7 +16,7 @@ export interface Item {
   active_flag: string;
   lot_required: 'Y' | 'N';
   item_type?: string; 
-  uom?: string; // 🚀 DB 컬럼명 확인 후 uom으로 맞춤
+  uom?: string; 
 }
 
 export default function DirectInboundPage() {
@@ -38,7 +38,6 @@ export default function DirectInboundPage() {
   // 2. 입력 폼 상태
   const [inboundType, setInboundType] = useState<TxCode>("IN_PURCHASE");
   
-  // 🚀 다중 입고 상태
   const [isMultiMode, setIsMultiMode] = useState(false);
   const [unitQty, setUnitQty] = useState("");
   const [selectedLocs, setSelectedLocs] = useState<string[]>([]);
@@ -87,10 +86,10 @@ export default function DirectInboundPage() {
     setSelectedItem(item);
     setItemSearchTerm("");
     
-    // 품목 변경 시 입력값 초기화
+    // 🚀 [버그 수정] 위치 코드(locationCode) 초기화 로직 삭제!
+    // 기존에 있던 setLocationCode(""); 를 지워서 맵에서 넘어온 값이 유지되게 합니다.
     setQty("");
     setUnitQty("");
-    setLocationCode("");
     setSelectedLocs([]);
     setIsMultiMode(false);
     
@@ -103,7 +102,6 @@ export default function DirectInboundPage() {
     }
   };
 
-  // 🚀 소수점 제어 로직 추가
   const getMaxDecimal = () => {
     if (!selectedItem) return 0;
     if (selectedItem.uom === 'KM') return 3;
@@ -133,7 +131,6 @@ export default function DirectInboundPage() {
     setUnitQty(sanitizeDecimalInput(e.target.value, getMaxDecimal()));
   };
 
-  // 🚀 계산 로직
   const totalInputQty = Number(qty) || 0;
   const unitQtyNum = Number(unitQty) || 0;
   const requiredCells = (isMultiMode && unitQtyNum > 0 && totalInputQty > 0) 
@@ -253,10 +250,8 @@ export default function DirectInboundPage() {
   const placeholderValue = currentMaxDec === 3 ? "0.000" : currentMaxDec === 2 ? "0.00" : "0";
 
   return (
-    // 🚀 [톤업] bg-slate-950 사용
     <div className="p-4 md:p-8 bg-slate-950 min-h-screen text-slate-100 font-[family-name:var(--font-geist-sans)] pb-40">
       
-      {/* 헤더 */}
       <div className="flex items-center gap-4 mb-8 border-b border-slate-800 pb-4 sticky top-0 bg-slate-950/90 backdrop-blur-sm z-30 pt-4">
         <button onClick={() => router.back()} className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition"><ArrowLeft /></button>
         <h1 className="text-2xl font-bold text-yellow-500">⚡ 즉시 입고</h1>
@@ -264,7 +259,6 @@ export default function DirectInboundPage() {
 
       <div className="max-w-2xl mx-auto space-y-8 animate-fade-in">
         
-        {/* 1. 입고 유형 선택 */}
         <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl">
             <label className="block text-sm text-slate-400 mb-3 font-bold">입고 유형</label>
             <div className="grid grid-cols-2 gap-2">
@@ -285,7 +279,6 @@ export default function DirectInboundPage() {
             </div>
         </div>
 
-        {/* 2. 품목 선택 */}
         <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl">
           <label className="block text-sm text-slate-400 mb-2 font-bold">품목 선택</label>
           {selectedItem ? (
@@ -350,7 +343,6 @@ export default function DirectInboundPage() {
           )}
         </div>
 
-        {/* 3. 위치 및 수량 */}
         <div className="flex flex-col gap-4">
             <div className="flex-1 bg-slate-900 border border-slate-800 p-6 rounded-xl relative z-10">
                 <div className="flex justify-between items-end mb-2">
@@ -451,7 +443,6 @@ export default function DirectInboundPage() {
             )}
         </div>
 
-        {/* 4. 상세 정보 */}
         {selectedItem && (
              <div className={`p-6 rounded-xl border transition-all ${isSubMaterial ? 'bg-slate-900/50 border-slate-800 opacity-70' : 'bg-slate-900 border-slate-800'}`}>
                 <div className="grid grid-cols-2 gap-4">
@@ -485,7 +476,6 @@ export default function DirectInboundPage() {
              </div>
         )}
 
-        {/* 하단 버튼 영역 */}
         <div className="mt-6 md:mt-0 md:fixed md:bottom-0 md:left-0 md:w-full md:p-4 md:bg-slate-950/80 md:backdrop-blur-md md:border-t md:border-slate-800 md:z-50">
             <button 
                 onClick={handleSave}
@@ -502,7 +492,10 @@ export default function DirectInboundPage() {
         <LocationMapSelector 
             isMultiMode={isMultiMode}
             onClose={() => setShowLocModal(false)}
-            onSelect={handleSelectLocation}
+            onSelect={(locId) => {
+                setLocationCode(locId);
+                setShowLocModal(false);
+            }}
             onSelectMulti={(locIds) => {
                 setSelectedLocs(locIds);
                 setShowLocModal(false);
