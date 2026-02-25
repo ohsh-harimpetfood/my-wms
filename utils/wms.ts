@@ -57,11 +57,12 @@ async function fetchAllData(
  */
 export const getAllLocations = async (supabase: SupabaseClient) => {
   // 🚨 [핵심 수정] 랙 정보를 그리기 위해 모든 컬럼(*)과 재고 정보를 가져옵니다.
+  // 🚀 item_type을 쉼표(,)와 함께 추가했습니다!
   const selectQuery = `
     *,
     inventory (
       quantity,
-      item_master ( item_name )
+      item_master ( item_name, item_type )
     )
   `;
 
@@ -92,7 +93,7 @@ export const getAllInventory = async (supabase: SupabaseClient) => {
   return await fetchAllData(
     supabase, 
     'inventory', 
-    '*, item_master!inner (item_name, uom)', 
+    '*, item_master!inner (item_name, uom, item_type)', 
     { orderCol: 'location_code' }
   );
 };
@@ -105,7 +106,7 @@ export const getAllItems = async (supabase: SupabaseClient) => {
   // 품목은 5000개 제한 (성능 고려)
   const { data, error } = await supabase
     .from('item_master')
-    .select('item_key, item_name, uom, remark')
+    .select('item_key, item_name, uom, item_type, remark')
     .eq('active_flag', 'Y')
     .limit(5000);
     
@@ -121,7 +122,7 @@ export const getAllTransactions = async (supabase: SupabaseClient) => {
   return await fetchAllData(
     supabase, 
     'stock_tx', 
-    '*, item_master(item_name, item_key, uom)', 
+    '*, item_master(item_name, item_key, uom, item_type)', 
     { orderCol: 'transaction_date' } 
   );
 };

@@ -9,6 +9,10 @@ export interface LocationData {
   side: string;
   inventory?: { 
     quantity: number; 
-    item_master?: { item_name: string } | null 
+    item_master?: { 
+      item_name: string;
+      item_type?: string; // 🚀 [추가] 원자재/부자재 판별용
+      uom?: string;       // 🚀 [추가] 단위 정보 판별용 (선택)
+    } | null 
   }[];
 }

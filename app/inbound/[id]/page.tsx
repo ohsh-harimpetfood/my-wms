@@ -10,7 +10,6 @@ import { TX_TYPES, TxCode } from "@/constants/transaction";
 import { useAuth } from "@/context/AuthProvider";
 import { useUI } from "@/context/UIProvider";
 
-// InboundMaster 타입
 interface InboundMaster {
   inbound_no: string;
   inbound_type: TxCode;
@@ -20,7 +19,6 @@ interface InboundMaster {
   remark: string;
 }
 
-// Item 인터페이스 (로컬 확장)
 interface ExtendedItem extends Item {
   item_type?: string; 
 }
@@ -42,17 +40,15 @@ export default function InboundWorkPage() {
   const [details, setDetails] = useState<InboundDetailWithItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 작업 입력 상태
   const [selectedDetail, setSelectedDetail] = useState<InboundDetailWithItem | null>(null);
   
-  // 🚀 [추가] 다중 입고 상태 관리
   const [isMultiMode, setIsMultiMode] = useState(false);
-  const [unitQty, setUnitQty] = useState(""); // 1셀당 들어갈 기준 수량
-  const [selectedLocs, setSelectedLocs] = useState<string[]>([]); // 다중 선택된 위치들
+  const [unitQty, setUnitQty] = useState(""); 
+  const [selectedLocs, setSelectedLocs] = useState<string[]>([]); 
 
-  const [locationCode, setLocationCode] = useState(""); // 단일 선택 위치
+  const [locationCode, setLocationCode] = useState(""); 
   const [lotNo, setLotNo] = useState("");
-  const [inputQty, setInputQty] = useState("");
+  const [inputQty, setInputQty] = useState(""); 
   const [expDate, setExpDate] = useState("");
   
   const [processing, setProcessing] = useState(false);
@@ -60,7 +56,6 @@ export default function InboundWorkPage() {
   
   const formRef = useRef<HTMLDivElement>(null);
 
-  // 1. 데이터 불러오기
   const fetchData = async () => {
     const { data: masterData } = await supabase.from("inbound_master").select("*").eq("inbound_no", id).single();
     const { data: detailData } = await supabase.from("inbound_detail").select(`*, item_master (*)`).eq("inbound_no", id).order("item_key");
@@ -74,7 +69,6 @@ export default function InboundWorkPage() {
     if (id) fetchData();
   }, [id]);
 
-  // 2. 품목 선택 핸들러
   const handleSelect = (detail: InboundDetailWithItem) => {
     if (detail.status === 'COMPLETED') {
         toast.info("이미 완료된 항목입니다.");
@@ -85,7 +79,6 @@ export default function InboundWorkPage() {
     const remainQty = detail.plan_qty - detail.received_qty;
     setInputQty(String(remainQty > 0 ? remainQty : 0));
     
-    // 🚀 선택 초기화
     setLocationCode(""); 
     setSelectedLocs([]);
     setIsMultiMode(false);
@@ -107,26 +100,54 @@ export default function InboundWorkPage() {
     }
   };
 
+  // 🚀 [추가] 품목의 유형과 단위에 따라 최대 소수점 자릿수를 계산하는 함수
+  const getMaxDecimal = () => {
+    if (!selectedDetail) return 0;
+    const type = selectedDetail.item_master.item_type;
+    const uom = selectedDetail.item_master.uom;
+
+    if (uom === 'KM') return 3; // 롤 부자재: 3자리
+    if (type === '원자재' || type === '원료') return 2; // 원자재: 2자리
+    return 0; // 나머지는 정수 (0자리)
+  };
+
+  // 🚀 [수정] 동적으로 소수점 자릿수를 제한하는 완벽한 정규식 필터
+  const sanitizeDecimalInput = (val: string, maxDec: number) => {
+    let sanitized = val.replace(/[^0-9.]/g, ''); 
+    
+    if (maxDec === 0) {
+        return sanitized.replace(/\./g, ''); // 0자리(정수)면 소수점 입력 자체를 막음
+    }
+
+    const parts = sanitized.split('.');
+    if (parts.length > 2) {
+      sanitized = parts[0] + '.' + parts.slice(1).join('');
+    }
+    
+    // 허용된 소수점 자릿수까지만 자름
+    const finalParts = sanitized.split('.');
+    if (finalParts.length === 2 && finalParts[1].length > maxDec) {
+        sanitized = finalParts[0] + '.' + finalParts[1].slice(0, maxDec);
+    }
+
+    return sanitized;
+  };
+
   const handleQtyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    const sanitized = val.replace(/[^0-9]/g, '');
-    setInputQty(sanitized);
+    setInputQty(sanitizeDecimalInput(e.target.value, getMaxDecimal()));
   };
 
   const handleUnitQtyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    const sanitized = val.replace(/[^0-9]/g, '');
-    setUnitQty(sanitized);
+    setUnitQty(sanitizeDecimalInput(e.target.value, getMaxDecimal()));
   };
 
-  // 🚀 [추가] 필요한 셀 개수 계산 로직
+  // 계산 로직 (Number 변환)
   const totalInputQty = Number(inputQty) || 0;
   const unitQtyNum = Number(unitQty) || 0;
   const requiredCells = (isMultiMode && unitQtyNum > 0 && totalInputQty > 0) 
     ? Math.ceil(totalInputQty / unitQtyNum) 
     : 0;
 
-  // 3. 입고 실행 (🚀 다중/단일 분기 처리)
   const handleConfirm = async () => {
     if (!user) return toast.error("로그인 정보가 없습니다.");
     if (!selectedDetail) return toast.error("작업할 품목을 선택해주세요.");
@@ -134,7 +155,6 @@ export default function InboundWorkPage() {
     const qtyNum = Number(inputQty);
     if (!qtyNum || qtyNum <= 0) return toast.error("유효한 수량을 입력해주세요.");
 
-    // 유효성 검사 분기
     if (isMultiMode) {
         if (!unitQtyNum || unitQtyNum <= 0) return toast.error("기준 단위 수량을 입력해주세요.");
         if (selectedLocs.length === 0) return toast.error("적치할 위치를 선택해주세요.");
@@ -145,7 +165,6 @@ export default function InboundWorkPage() {
 
     const currentReceived = selectedDetail.received_qty;
     
-    // 과납 경고
     if (currentReceived + qtyNum > selectedDetail.plan_qty) {
         const proceed = await confirm(
             `[주의: 초과 입고]\n계획: ${selectedDetail.plan_qty} / 현재: ${currentReceived}\n추가: ${qtyNum}\n\n계속 진행하시겠습니까?`,
@@ -160,7 +179,6 @@ export default function InboundWorkPage() {
         if (!expDate) return toast.warning("유통기한을 입력해주세요.");
     }
 
-    // 최종 확인 (다중/단일 메시지 분리)
     const msg = isMultiMode 
       ? `[다중 분할 입고 확정]\n품목: ${selectedDetail.item_master.item_name}\n총 수량: ${qtyNum}\n분배 위치: ${selectedLocs.length}개 셀\n\n저장하시겠습니까?`
       : `[입고 확정]\n품목: ${selectedDetail.item_master.item_name}\n수량: ${qtyNum}\n위치: ${locationCode}\n\n저장하시겠습니까?`;
@@ -170,11 +188,11 @@ export default function InboundWorkPage() {
 
     setProcessing(true);
     try {
-      // 🚀 분배 로직 배열 생성
       const distribution = isMultiMode 
         ? selectedLocs.map((loc, idx) => {
             const isLast = idx === selectedLocs.length - 1;
-            const remain = qtyNum - (unitQtyNum * idx);
+            // 🚀 정밀한 소수점 오차 처리 유지
+            const remain = Number((qtyNum - (unitQtyNum * idx)).toFixed(4));
             const allocQty = isLast ? remain : unitQtyNum;
             return { locId: loc, qty: allocQty };
           })
@@ -182,9 +200,7 @@ export default function InboundWorkPage() {
 
       const nowISO = new Date().toISOString();
 
-      // 🚀 Promise.all을 활용한 안전한 일괄 처리
       await Promise.all(distribution.map(async (dist) => {
-          // A. 재고 등록 (UPSERT 검사)
           const { data: existInven } = await supabase.from("inventory").select("id, quantity")
             .eq("location_code", dist.locId)
             .eq("item_key", selectedDetail.item_key)
@@ -211,7 +227,6 @@ export default function InboundWorkPage() {
             });
           }
 
-          // C. 수불 이력
           await supabase.from("stock_tx").insert({
             transaction_type: 'INBOUND',
             io_type: 'IN',
@@ -226,12 +241,10 @@ export default function InboundWorkPage() {
           });
       }));
 
-      // B. 입고 상세 업데이트
       const newReceivedQty = Number(selectedDetail.received_qty) + qtyNum;
       const newDetailStatus = newReceivedQty >= selectedDetail.plan_qty ? 'COMPLETED' : 'PENDING';
       await supabase.from("inbound_detail").update({ received_qty: newReceivedQty, status: newDetailStatus }).eq("id", selectedDetail.id);
 
-      // D. 마스터 상태 업데이트
       const { data: allDetails } = await supabase.from("inbound_detail").select("id, status").eq("inbound_no", id);
       if (allDetails) {
         const updatedDetails = allDetails.map(d => d.id === selectedDetail.id ? { ...d, status: newDetailStatus } : d);
@@ -251,26 +264,27 @@ export default function InboundWorkPage() {
     }
   };
 
-  if (loading) return <div className="flex h-screen items-center justify-center bg-black text-white">데이터 로딩 중...</div>;
-  if (!master) return <div className="p-8 text-white">존재하지 않는 입고 번호입니다.</div>;
+  if (loading) return <div className="flex h-screen items-center justify-center bg-slate-950 text-slate-200">데이터 로딩 중...</div>;
+  if (!master) return <div className="p-8 text-slate-200">존재하지 않는 입고 번호입니다.</div>;
 
   const isSubMaterial = selectedDetail?.item_master.item_type === SUB_MATERIAL_TYPE || selectedDetail?.item_master.lot_required === 'N';
+  const currentMaxDec = getMaxDecimal();
+  const placeholderValue = currentMaxDec === 3 ? "0.000" : currentMaxDec === 2 ? "0.00" : "0";
 
   return (
-    <div className="p-4 md:p-8 bg-black min-h-screen text-white font-[family-name:var(--font-geist-sans)] pb-32">
+    <div className="p-4 md:p-8 bg-slate-950 min-h-screen text-slate-100 font-[family-name:var(--font-geist-sans)] pb-32">
       
-      {/* 헤더 (기존 동일) */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 border-b border-gray-800 pb-4 gap-4 sticky top-0 bg-black/90 backdrop-blur-sm z-30 pt-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 border-b border-slate-800 pb-4 gap-4 sticky top-0 bg-slate-950/90 backdrop-blur-sm z-30 pt-4">
         <div>
           <div className="flex items-center gap-3">
-            <button onClick={() => router.back()} className="p-2 hover:bg-gray-800 rounded-full text-gray-400 hover:text-white transition"><ArrowLeft /></button>
+            <button onClick={() => router.back()} className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition"><ArrowLeft /></button>
             <h1 className="text-lg md:text-2xl font-bold flex items-center gap-2">
-                🚛 입고 작업 <span className="text-gray-500 text-sm md:text-lg font-normal hidden md:inline">| {master.inbound_no}</span>
+                🚛 입고 작업 <span className="text-slate-500 text-sm md:text-lg font-normal hidden md:inline">| {master.inbound_no}</span>
             </h1>
           </div>
-          <div className="mt-2 text-gray-400 flex items-center gap-2 md:gap-3 text-xs md:text-sm ml-2">
+          <div className="mt-2 text-slate-400 flex items-center gap-2 md:gap-3 text-xs md:text-sm ml-2">
              {master && TX_TYPES[master.inbound_type] && (
-                <span className={`px-2 py-0.5 rounded border bg-gray-900 border-gray-700 text-gray-300`}>
+                <span className={`px-2 py-0.5 rounded border bg-slate-900 border-slate-700 text-slate-300`}>
                     {TX_TYPES[master.inbound_type].label}
                 </span>
              )}
@@ -279,9 +293,9 @@ export default function InboundWorkPage() {
         </div>
         <div className="self-end md:self-auto">
             <div className={`px-3 py-1 md:px-4 md:py-2 rounded-lg text-xs md:text-sm font-bold border ${
-                master.status === 'CLOSED' ? 'bg-green-900/30 text-green-400 border-green-800' : 
+                master.status === 'CLOSED' ? 'bg-emerald-900/30 text-emerald-400 border-emerald-800' : 
                 master.status === 'PARTIAL' ? 'bg-blue-900/30 text-blue-400 border-blue-800' :
-                'bg-yellow-900/30 text-yellow-400 border-yellow-800'
+                'bg-amber-900/30 text-amber-400 border-amber-800'
             }`}>
                 {master.status}
             </div>
@@ -290,9 +304,8 @@ export default function InboundWorkPage() {
       
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
          
-        {/* 좌측: 입고 예정 목록 (기존 동일) */}
         <div className="lg:col-span-2 space-y-2 md:space-y-3">
-          <h2 className="text-base md:text-lg font-bold mb-2 flex items-center gap-2"><Check className="text-green-500" size={18}/> 작업 대상 목록</h2>
+          <h2 className="text-base md:text-lg font-bold mb-2 flex items-center gap-2"><Check className="text-emerald-500" size={18}/> 작업 대상 목록</h2>
           {details.map((row) => {
             const progress = Math.min(100, (row.received_qty / row.plan_qty) * 100);
             const isCompleted = row.status === 'COMPLETED';
@@ -303,104 +316,110 @@ export default function InboundWorkPage() {
                 key={row.id}
                 onClick={() => handleSelect(row)}
                 className={`p-3 md:p-4 rounded-xl border cursor-pointer transition relative overflow-hidden group
-                  ${isCompleted ? 'bg-gray-900/50 border-gray-800 opacity-60' : 
-                    isSelected ? 'bg-blue-900/20 border-blue-500 ring-1 ring-blue-500' : 'bg-gray-900 border-gray-700 hover:border-gray-500 hover:bg-gray-800'}
+                  ${isCompleted ? 'bg-slate-900/50 border-slate-800 opacity-60' : 
+                    isSelected ? 'bg-blue-900/20 border-blue-500 ring-1 ring-blue-500 shadow-lg shadow-blue-900/20' : 'bg-slate-900 border-slate-700 hover:border-slate-500 hover:bg-slate-800'}
                 `}
               >
                 <div className="flex justify-between items-center z-10 relative">
                   <div className="flex-1 min-w-0 pr-2">
-                    <div className="text-sm md:text-lg font-bold text-white flex items-center gap-2 truncate">
+                    <div className="text-sm md:text-lg font-bold text-slate-100 flex items-center gap-2 truncate">
                         <span className="truncate">{row.item_master.item_name}</span>
-                        {row.item_master.item_type === SUB_MATERIAL_TYPE && <span className="text-[10px] bg-gray-700 px-1.5 py-0.5 rounded text-gray-300 shrink-0">부자재</span>}
+                        {/* 🚀 [변경] 부자재/원자재 뱃지 색상 통일성 부여 */}
+                        {row.item_master.item_type === '원자재' ? (
+                            <span className="text-[10px] bg-lime-900/50 border border-lime-700/50 px-1.5 py-0.5 rounded text-lime-400 shrink-0">원자재</span>
+                        ) : (
+                            <span className="text-[10px] bg-slate-700 px-1.5 py-0.5 rounded text-slate-300 shrink-0">{row.item_master.item_type || '부자재'}</span>
+                        )}
                     </div>
-                    <div className="text-xs md:text-sm text-gray-500 mt-0.5 md:mt-1 flex items-center gap-2">
-                        <span className="bg-gray-800 px-1.5 rounded font-mono">{row.item_key}</span>
-                        <span>{row.item_master.uom}</span>
+                    <div className="text-xs md:text-sm text-slate-500 mt-0.5 md:mt-1 flex items-center gap-2">
+                        <span className="bg-slate-800 px-1.5 rounded font-mono border border-slate-700">{row.item_key}</span>
+                        <span className="font-bold text-slate-400">{row.item_master.uom}</span>
                     </div>
                   </div>
                   <div className="text-right shrink-0">
                     <div className="text-lg md:text-2xl font-bold">
-                        <span className={isCompleted ? "text-green-500" : "text-white"}>{row.received_qty}</span>
-                        <span className="text-gray-600 text-sm md:text-lg"> / {row.plan_qty}</span>
+                        <span className={isCompleted ? "text-emerald-500" : "text-white"}>{row.received_qty}</span>
+                        <span className="text-slate-600 text-sm md:text-lg"> / {row.plan_qty}</span>
                     </div>
-                    <div className="text-[10px] md:text-xs text-gray-400 mt-0.5">{isCompleted ? '완료' : `${row.plan_qty - row.received_qty} 남음`}</div>
+                    <div className="text-[10px] md:text-xs text-slate-500 mt-0.5">{isCompleted ? '완료' : `${row.plan_qty - row.received_qty} 남음`}</div>
                   </div>
                 </div>
-                <div className="absolute bottom-0 left-0 h-1 bg-gray-800 w-full">
-                    <div className={`h-full transition-all duration-500 ${isCompleted ? 'bg-green-500' : 'bg-blue-500'}`} style={{ width: `${progress}%` }}></div>
+                <div className="absolute bottom-0 left-0 h-1 bg-slate-800 w-full">
+                    <div className={`h-full transition-all duration-500 ${isCompleted ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${progress}%` }}></div>
                 </div>
               </div>
             );
           })}
         </div>
 
-        {/* 우측: 작업 입력 폼 */}
         <div className="lg:sticky lg:top-24 h-fit" ref={formRef}>
-          <div className="bg-gray-900 border border-gray-800 p-4 md:p-6 rounded-xl shadow-xl">
-            <h2 className="text-lg font-bold mb-4 flex items-center gap-2">✍️ 실적 등록</h2>
+          <div className="bg-slate-900 border border-slate-800 p-4 md:p-6 rounded-xl shadow-xl">
+            <h2 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-200">✍️ 실적 등록</h2>
             
             {!selectedDetail ? (
-              <div className="text-gray-500 text-center py-10 flex flex-col items-center justify-center border-2 border-dashed border-gray-800 rounded-xl">
+              <div className="text-slate-500 text-center py-10 flex flex-col items-center justify-center border-2 border-dashed border-slate-800 rounded-xl bg-slate-900/50">
                 <Package size={48} className="mb-4 opacity-20"/>
                 <p className="text-sm">목록에서 품목을 선택하세요.</p>
               </div>
             ) : (
               <div className="space-y-4 animate-fade-in">
-                {/* 선택된 품목 정보 */}
-                <div className="p-4 bg-black rounded-lg border border-gray-800 shadow-inner">
-                  <div className="text-xs text-gray-500 mb-1">선택된 품목</div>
+                <div className="p-4 bg-slate-950 rounded-lg border border-slate-800 shadow-inner">
+                  <div className="text-xs text-slate-500 mb-1">선택된 품목</div>
                   <div className="font-bold text-lg md:text-xl text-blue-400 leading-tight">{selectedDetail.item_master.item_name}</div>
-                  <div className="flex justify-between mt-2 text-sm text-gray-400 border-t border-gray-800 pt-2">
+                  <div className="flex justify-between mt-2 text-sm text-slate-400 border-t border-slate-800 pt-2">
                     <span>계획 / 잔여 수량</span>
-                    <span className="text-white font-bold">{selectedDetail.plan_qty} / <span className="text-yellow-400">{selectedDetail.plan_qty - selectedDetail.received_qty}</span></span>
+                    <span className="text-slate-200 font-bold">{selectedDetail.plan_qty} / <span className="text-amber-400">{selectedDetail.plan_qty - selectedDetail.received_qty}</span></span>
                   </div>
                 </div>
 
-                {/* 🚀 [수정] 총 입고 수량 입력: type="text" & 콤마 적용 */}
                 <div>
-                  <label className="block text-sm text-gray-400 mb-2 font-bold">입고 대상 총 수량</label>
+                  <div className="flex justify-between items-end mb-2">
+                    <label className="block text-sm text-slate-400 font-bold">입고 대상 총 수량</label>
+                    {/* 🚀 사용자 안내용 제약조건 표시 */}
+                    <span className="text-[10px] text-blue-400 font-mono bg-blue-900/20 px-1.5 py-0.5 rounded border border-blue-900/50">
+                        {currentMaxDec === 0 ? "정수 입력만 가능" : `소수점 ${currentMaxDec}자리까지 허용`}
+                    </span>
+                  </div>
                   <input 
-                    type="text" inputMode="numeric"
-                    className="w-full bg-black border border-gray-700 rounded-lg p-3 text-white focus:border-blue-500 outline-none text-3xl font-bold text-right placeholder-gray-800" 
-                    value={inputQty ? Number(inputQty).toLocaleString() : ''} 
+                    type="text" inputMode="decimal"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white focus:border-blue-500 outline-none text-3xl font-bold text-right placeholder-slate-700 transition" 
+                    value={inputQty} 
                     onChange={handleQtyChange}
-                    placeholder="0" 
+                    placeholder={placeholderValue} 
                   />
                 </div>
 
-                {/* 🚀 [추가] 모드 토글 스위치 */}
-                <div className="flex bg-black p-1 rounded-lg border border-gray-800 w-full mb-2">
+                <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800 w-full mb-2">
                     <button 
                         onClick={() => setIsMultiMode(false)} 
-                        className={`flex-1 py-2 rounded text-xs md:text-sm font-bold transition-all ${!isMultiMode ? 'bg-gray-700 text-white shadow' : 'text-gray-500 hover:text-white'}`}
+                        className={`flex-1 py-2 rounded text-xs md:text-sm font-bold transition-all ${!isMultiMode ? 'bg-slate-800 text-white shadow border border-slate-700' : 'text-slate-500 hover:text-white'}`}
                     >
                         단일 위치 적재
                     </button>
                     <button 
                         onClick={() => setIsMultiMode(true)} 
-                        className={`flex-1 flex items-center justify-center gap-1 py-2 rounded text-xs md:text-sm font-bold transition-all ${isMultiMode ? 'bg-blue-600 text-white shadow' : 'text-gray-500 hover:text-white'}`}
+                        className={`flex-1 flex items-center justify-center gap-1 py-2 rounded text-xs md:text-sm font-bold transition-all ${isMultiMode ? 'bg-blue-600 text-white shadow shadow-blue-900/30' : 'text-slate-500 hover:text-white'}`}
                     >
                         <Layers size={14}/> 다중 분할 적재
                     </button>
                 </div>
 
-                {/* 🚀 위치 입력 컴포넌트 분기 */}
                 {isMultiMode ? (
-                    <div className="space-y-3 bg-blue-900/10 border border-blue-900/30 p-3 rounded-xl animate-fade-in">
+                    <div className="space-y-3 bg-blue-950/20 border border-blue-900/30 p-3 rounded-xl animate-fade-in shadow-inner">
                         <div>
                             <label className="block text-xs text-blue-300 mb-1 font-bold">단위 수량 (1개 위치당 적재량)</label>
                             <input 
-                                type="text" inputMode="numeric"
-                                className="w-full bg-black border border-blue-900/50 rounded-lg p-2.5 text-blue-100 focus:border-blue-500 outline-none text-xl font-bold text-right" 
-                                value={unitQty ? Number(unitQty).toLocaleString() : ''} 
+                                type="text" inputMode="decimal"
+                                className="w-full bg-slate-950 border border-blue-900/50 rounded-lg p-2.5 text-blue-100 focus:border-blue-500 outline-none text-xl font-bold text-right transition" 
+                                value={unitQty} 
                                 onChange={handleUnitQtyChange}
-                                placeholder="예: 500" 
+                                placeholder={`예: 50${currentMaxDec > 0 ? '.5' : ''}`} 
                             />
                         </div>
                         
-                        <div className="flex items-center justify-between text-xs text-gray-400">
+                        <div className="flex items-center justify-between text-xs text-slate-400">
                             <span>필요한 위치 수:</span>
-                            <span className="font-bold text-white bg-gray-800 px-2 py-0.5 rounded">{requiredCells} 개</span>
+                            <span className="font-bold text-white bg-slate-800 px-2 py-0.5 rounded border border-slate-700">{requiredCells} 개</span>
                         </div>
 
                         <button 
@@ -408,24 +427,23 @@ export default function InboundWorkPage() {
                                 if (requiredCells > 0) setShowLocModal(true);
                                 else uiAlert("총 수량과 단위 수량을 먼저 입력해주세요.", "warning");
                             }}
-                            className="w-full py-3 bg-black border border-gray-700 hover:border-blue-500 rounded-lg flex items-center justify-between px-4 transition text-sm"
+                            className="w-full py-3 bg-slate-950 border border-slate-700 hover:border-blue-500 rounded-lg flex items-center justify-between px-4 transition text-sm group"
                         >
-                            <span className="text-gray-400">위치 다중 선택하기</span>
+                            <span className="text-slate-400 group-hover:text-slate-300">위치 다중 선택하기</span>
                             <div className="flex items-center gap-2">
-                                <span className={`font-bold ${selectedLocs.length === requiredCells && requiredCells > 0 ? 'text-green-400' : 'text-blue-400'}`}>
+                                <span className={`font-bold ${selectedLocs.length === requiredCells && requiredCells > 0 ? 'text-emerald-400' : 'text-blue-400'}`}>
                                     {selectedLocs.length} / {requiredCells}
                                 </span>
-                                <Search size={16} className="text-gray-500"/>
+                                <Search size={16} className="text-slate-500 group-hover:text-blue-400"/>
                             </div>
                         </button>
 
-                        {/* 선택된 위치 미리보기 */}
                         {selectedLocs.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-2">
                                 {selectedLocs.map((loc, idx) => {
-                                    const allocQty = (idx === selectedLocs.length - 1) ? totalInputQty - (unitQtyNum * idx) : unitQtyNum;
+                                    const allocQty = (idx === selectedLocs.length - 1) ? Number((totalInputQty - (unitQtyNum * idx)).toFixed(4)) : unitQtyNum;
                                     return (
-                                        <div key={loc} className="bg-blue-600/20 border border-blue-500/30 text-blue-300 text-[10px] px-2 py-1 rounded flex items-center gap-1">
+                                        <div key={loc} className="bg-blue-900/40 border border-blue-500/50 text-blue-200 text-[10px] px-2 py-1 rounded flex items-center gap-1 shadow-sm">
                                             <span className="font-mono font-bold">{loc}</span>
                                             <span className="opacity-70">({allocQty})</span>
                                         </div>
@@ -436,16 +454,16 @@ export default function InboundWorkPage() {
                     </div>
                 ) : (
                     <div>
-                        <label className="block text-sm text-gray-400 mb-2 font-bold">적재 위치 (Location)</label>
+                        <label className="block text-sm text-slate-400 mb-2 font-bold">적재 위치 (Location)</label>
                         <div 
-                            className="flex items-center bg-black border border-blue-500 rounded-lg p-1 cursor-pointer hover:bg-gray-800 transition group h-12"
+                            className="flex items-center bg-slate-950 border border-slate-600 focus-within:border-blue-500 rounded-lg p-1 cursor-pointer hover:bg-slate-800 transition group h-12"
                             onClick={() => setShowLocModal(true)}
                         >
-                            <div className="pl-3 pr-2 text-gray-500 group-hover:text-blue-400"><Search size={18} /></div>
+                            <div className="pl-3 pr-2 text-slate-500 group-hover:text-blue-400"><Search size={18} /></div>
                             <input 
                                 type="text" 
                                 placeholder="터치하여 선택"
-                                className="bg-transparent outline-none text-white font-mono text-lg w-full cursor-pointer placeholder-gray-600 uppercase h-full"
+                                className="bg-transparent outline-none text-white font-mono text-lg w-full cursor-pointer placeholder-slate-600 uppercase h-full"
                                 value={locationCode}
                                 onChange={(e) => setLocationCode(e.target.value.toUpperCase())}
                             />
@@ -453,12 +471,12 @@ export default function InboundWorkPage() {
                     </div>
                 )}
 
-                <div className={`grid grid-cols-2 gap-3 transition-opacity ${isSubMaterial ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
+                <div className={`grid grid-cols-2 gap-3 transition-opacity ${isSubMaterial ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
                     <div>
-                        <label className="block text-sm text-gray-400 mb-2 font-bold flex items-center gap-1"><Hash size={14}/> LOT</label>
+                        <label className="block text-sm text-slate-400 mb-2 font-bold flex items-center gap-1"><Hash size={14}/> LOT</label>
                         <input 
                             type="text" 
-                            className="w-full bg-black border border-gray-700 rounded-lg p-3 text-white focus:border-blue-500 outline-none h-12" 
+                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white focus:border-blue-500 outline-none h-12 placeholder-slate-700 transition" 
                             value={lotNo} 
                             onChange={(e) => setLotNo(e.target.value)} 
                             disabled={isSubMaterial}
@@ -466,10 +484,10 @@ export default function InboundWorkPage() {
                         />
                     </div>
                     <div>
-                        <label className="block text-sm text-gray-400 mb-2 font-bold flex items-center gap-1"><Calendar size={14}/> 유통기한</label>
+                        <label className="block text-sm text-slate-400 mb-2 font-bold flex items-center gap-1"><Calendar size={14}/> 유통기한</label>
                         <input 
                             type="date" 
-                            className="w-full bg-black border border-gray-700 rounded-lg p-3 text-white focus:border-blue-500 outline-none h-12" 
+                            className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white focus:border-blue-500 outline-none h-12 transition" 
                             value={expDate} 
                             onChange={(e) => setExpDate(e.target.value)} 
                             disabled={isSubMaterial}
@@ -477,7 +495,7 @@ export default function InboundWorkPage() {
                     </div>
                 </div>
                 
-                {isSubMaterial && <div className="text-xs text-center text-gray-500">* 부자재: LOT/유통기한 생략</div>}
+                {isSubMaterial && <div className="text-xs text-center text-slate-500 bg-slate-800/50 py-1.5 rounded-md">* 부자재: LOT/유통기한 생략</div>}
 
                 <div className="pt-2 gap-3 flex flex-col">
                     <button 
@@ -490,7 +508,7 @@ export default function InboundWorkPage() {
                     
                     <button 
                         onClick={() => setSelectedDetail(null)} 
-                        className="w-full bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white py-3 rounded-xl transition text-sm"
+                        className="w-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white py-3 rounded-xl transition text-sm border border-slate-700"
                     >
                         선택 취소
                     </button>
@@ -506,12 +524,10 @@ export default function InboundWorkPage() {
             isMultiMode={isMultiMode}
             onClose={() => setShowLocModal(false)}
             onSelect={(locId) => {
-                // 단일 모드일 때만 호출됨
                 setLocationCode(locId);
                 setShowLocModal(false);
             }}
             onSelectMulti={(locIds) => {
-                // 다중 모드일 때 확정 버튼 누르면 호출됨
                 setSelectedLocs(locIds);
                 setShowLocModal(false);
             }}
