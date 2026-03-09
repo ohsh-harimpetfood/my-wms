@@ -23,13 +23,11 @@ function OutboundForm() {
   const { alert, confirm, toast } = useUI(); 
   const { user } = useAuth(); 
 
-  // URL 파라미터에서 초기값 읽기
   const paramLoc = searchParams.get("loc") || "";
   const paramItem = searchParams.get("item") || "";
   const paramLot = searchParams.get("lot") || "";
   const paramMaxQty = Number(searchParams.get("qty") || 0);
 
-  // 폼 상태
   const [formData, setFormData] = useState({
     location_code: paramLoc,
     item_key: paramItem,
@@ -39,18 +37,15 @@ function OutboundForm() {
   });
   
   const [txCode, setTxCode] = useState<TxCode>('OUT_PROD');
-  
-  // 🚀 [수정] 품목 정보 전체 상태 관리 (소수점 제어용)
   const [itemInfo, setItemInfo] = useState<{ item_name: string; uom: string; item_type: string } | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // 🚀 [수정] 품목 이름 및 소수점 제어용 데이터 가져오기
   useEffect(() => {
     const fetchItemInfo = async () => {
         if (!formData.item_key) return;
         const { data } = await supabase
             .from("item_master")
-            .select("item_name, uom, item_type") // uom, item_type 추가 조회
+            .select("item_name, uom, item_type") 
             .eq("item_key", formData.item_key)
             .single();
             
@@ -59,15 +54,13 @@ function OutboundForm() {
     fetchItemInfo();
   }, [formData.item_key, supabase]);
 
-  // 🚀 [추가] 소수점 자릿수 동적 계산 함수
   const getMaxDecimal = () => {
     if (!itemInfo) return 0;
     if (itemInfo.uom === 'KM') return 3;
     if (itemInfo.item_type === '원자재' || itemInfo.item_type === '원료') return 2;
-    return 0; // 나머지는 정수
+    return 0; 
   };
 
-  // 🚀 [추가] 소수점 입력 제어 정규식
   const sanitizeDecimalInput = (val: string, maxDec: number) => {
     let sanitized = val.replace(/[^0-9.]/g, ''); 
     if (maxDec === 0) return sanitized.replace(/\./g, ''); 
@@ -82,12 +75,10 @@ function OutboundForm() {
     return sanitized;
   };
 
-  // 🚀 [수정] 수량 입력 핸들러
   const handleQtyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const maxDec = getMaxDecimal();
     const val = sanitizeDecimalInput(e.target.value, maxDec);
     
-    // 출고 가능 수량 초과 방지
     if (paramMaxQty > 0 && Number(val) > paramMaxQty) {
         setFormData({ ...formData, out_qty: String(paramMaxQty) });
         return;
@@ -96,7 +87,6 @@ function OutboundForm() {
     setFormData({ ...formData, out_qty: val });
   };
 
-  // 저장 핸들러
   const handleSave = async () => {
     if (!user) {
         await alert("로그인 세션이 만료되었습니다.", "error");
@@ -134,11 +124,100 @@ function OutboundForm() {
 
         if (invError || !currentInv) throw new Error("해당 재고를 찾을 수 없습니다. 이미 출고되었거나 삭제된 데이터일 수 있습니다.");
         
-        // 🚀 부동소수점 오차 방지
         const newQty = Number((currentInv.quantity - qty).toFixed(4));
         if (newQty < 0) throw new Error("시스템 재고 부족 오류 (다른 사용자가 먼저 출고했을 수 있습니다)");
 
-        // 2. 재고 차감 (업데이트 or 삭제)
+        // 🚀 2. 박스 정보 자동 차감 알고리즘 (잔량 우선 ➔ 가장 작은 박스 개봉)
+        const { data: packInfo } = await supabase
+            .from("inventory_packing_info")
+            .select("*")
+            .eq("inventory_id", currentInv.id);
+
+        if (packInfo && packInfo.length > 0) {
+            // 전량 출고 시 깔끔하게 삭제
+            if (newQty === 0) {
+                const { error: delErr } = await supabase.from("inventory_packing_info").delete().eq("inventory_id", currentInv.id);
+                if (delErr) throw new Error(`박스 정보 초기화 실패 (RLS 권한을 확인하세요): ${delErr.message}`);
+            } else {
+                let remainingToDeduct = qty;
+                
+                // 🛡️ [업그레이드] 1. 잔량(LOOSE) 데이터 모두 하나로 합치기
+                const looseRecords = packInfo.filter(p => p.pack_type === 'LOOSE');
+                const totalLooseQty = looseRecords.reduce((sum, p) => sum + Number(p.total_qty), 0);
+                let loose = { pack_type: 'LOOSE', unit_qty: 1, pack_count: totalLooseQty, total_qty: totalLooseQty };
+
+                // 🛡️ [업그레이드] 2. 박스(BOX) 데이터도 같은 단위(unit_qty)끼리 모두 합치기 (무한 증식 방지)
+                const boxMap = new Map<number, any>();
+                packInfo.filter(p => p.pack_type === 'BOX').forEach(b => {
+                    const uQty = Number(b.unit_qty);
+                    if (boxMap.has(uQty)) {
+                        const existing = boxMap.get(uQty);
+                        existing.pack_count += Number(b.pack_count);
+                        existing.total_qty += Number(b.total_qty);
+                    } else {
+                        boxMap.set(uQty, { pack_type: 'BOX', unit_qty: uQty, pack_count: Number(b.pack_count), total_qty: Number(b.total_qty) });
+                    }
+                });
+                
+                // 작은 박스부터 뜯기 위해 오름차순 정렬
+                let boxes = Array.from(boxMap.values()).sort((a, b) => a.unit_qty - b.unit_qty);
+
+                // 차감 로직 시작
+                while (remainingToDeduct > 0) {
+                    // 1순위: 잔량(LOOSE)에서 차감
+                    if (loose.total_qty > 0) {
+                        const deduct = Math.min(loose.total_qty, remainingToDeduct);
+                        loose.total_qty = Number((loose.total_qty - deduct).toFixed(4));
+                        loose.pack_count = loose.total_qty; // LOOSE는 pack_count = total_qty
+                        remainingToDeduct = Number((remainingToDeduct - deduct).toFixed(4));
+                    }
+
+                    // 2순위: 잔량을 다 썼는데도 더 빼야 한다면, 가장 작은 박스 1개를 뜯음
+                    if (remainingToDeduct > 0) {
+                        const availableBoxIndex = boxes.findIndex(b => b.pack_count > 0);
+                        if (availableBoxIndex !== -1) {
+                            const box = boxes[availableBoxIndex];
+                            box.pack_count -= 1; // 박스 1개 까기
+                            box.total_qty = Number((box.total_qty - box.unit_qty).toFixed(4));
+                            
+                            // 뜯은 박스 수량만큼 잔량(LOOSE)에 더하기
+                            loose.total_qty = Number((loose.total_qty + box.unit_qty).toFixed(4));
+                            loose.pack_count = loose.total_qty;
+                        } else {
+                            // 더 이상 뜯을 박스가 없으면 탈출
+                            break;
+                        }
+                    }
+                }
+
+                // 갱신된 데이터를 취합 (수량이 0보다 큰 것만)
+                const finalPacks: any[] = [];
+                if (loose.total_qty > 0) finalPacks.push(loose);
+                boxes.forEach(b => {
+                    if (b.pack_count > 0) finalPacks.push(b);
+                });
+
+                // 🚨 기존 정보 삭제 (에러 시 무조건 중단되도록 방어막 추가)
+                const { error: delErr } = await supabase.from("inventory_packing_info").delete().eq("inventory_id", currentInv.id);
+                if (delErr) throw new Error(`기존 박스 정보 갱신 실패 (RLS DELETE 권한 확인): ${delErr.message}`);
+                
+                // 새 정보 입력
+                if (finalPacks.length > 0) {
+                    const inserts = finalPacks.map(p => ({
+                        inventory_id: currentInv.id,
+                        pack_type: p.pack_type,
+                        unit_qty: p.unit_qty,
+                        pack_count: p.pack_count,
+                        total_qty: p.total_qty,
+                        updated_by: user.id
+                    }));
+                    const { error: insErr } = await supabase.from("inventory_packing_info").insert(inserts);
+                    if (insErr) throw new Error(`새 박스 정보 등록 실패: ${insErr.message}`);
+                }
+            }
+        }
+
+        // 3. 재고 차감 (업데이트 or 삭제)
         if (newQty === 0) {
             await supabase.from("inventory").delete().eq("id", currentInv.id);
         } else {
@@ -149,7 +228,7 @@ function OutboundForm() {
             }).eq("id", currentInv.id);
         }
 
-        // 3. 수불 이력 생성
+        // 4. 수불 이력 생성
         const { error: txError } = await supabase.from("stock_tx").insert({
             transaction_type: 'OUTBOUND',
             io_type: 'OUT',
@@ -180,11 +259,8 @@ function OutboundForm() {
   const placeholderValue = currentMaxDec === 3 ? "0.000" : currentMaxDec === 2 ? "0.00" : "0";
 
   return (
-    // 🚀 [톤업] bg-black -> bg-slate-950
     <div className="p-4 md:p-8 bg-slate-950 min-h-screen text-slate-100 font-[family-name:var(--font-geist-sans)] flex justify-center pb-24">
-      
       <div className="w-full max-w-2xl animate-fade-in">
-        
         {/* 헤더 */}
         <div className="flex items-center gap-4 mb-6 border-b border-slate-800 pb-4 sticky top-0 bg-slate-950/90 backdrop-blur-sm z-30 pt-2">
             <button onClick={() => router.back()} className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition"><ArrowLeft /></button>
@@ -195,7 +271,6 @@ function OutboundForm() {
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 md:p-8 shadow-2xl space-y-6">
-            
             {/* 선택된 재고 정보 요약 카드 */}
             <div className="bg-slate-950/50 border border-slate-700 rounded-xl p-5 flex flex-col gap-4 shadow-inner">
                 <div className="flex justify-between items-start border-b border-slate-800 pb-3 mb-1">
@@ -238,8 +313,7 @@ function OutboundForm() {
 
             {/* 입력 폼 */}
             <div className="space-y-6 pt-2">
-
-                {/* 출고 유형 선택 (버튼형 칩) */}
+                {/* 출고 유형 선택 */}
                 <div>
                     <label className="block text-sm text-slate-400 mb-3 font-bold">출고 유형 (Issue Type)</label>
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
@@ -263,7 +337,6 @@ function OutboundForm() {
                 <div>
                     <div className="flex justify-between items-end mb-2">
                         <label className="block text-sm text-slate-400 font-bold">출고 수량 (Out Qty)</label>
-                        {/* 🚀 사용자 안내용 제약조건 표시 */}
                         <span className="text-[10px] text-blue-400 font-mono bg-blue-900/20 px-1.5 py-0.5 rounded border border-blue-900/50">
                             {currentMaxDec === 0 ? "정수 입력만 가능" : `소수점 ${currentMaxDec}자리까지 허용`}
                         </span>

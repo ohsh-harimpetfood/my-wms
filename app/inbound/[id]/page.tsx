@@ -3,9 +3,12 @@
 import { createClient } from "@/utils/supabase/client";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
-import { ArrowLeft, Search, Check, Calendar, Hash, Package, AlertCircle, Layers } from "lucide-react"; 
+// 🚀 [수정] Calculator 아이콘 추가
+import { ArrowLeft, Search, Check, Calendar, Hash, Package, AlertCircle, Layers, Calculator } from "lucide-react"; 
 import { InboundDetail, Item } from "@/types";
 import LocationMapSelector from "@/components/LocationMapSelector"; 
+// 🚀 [추가] SubMaterialHelperSheet 임포트
+import SubMaterialHelperSheet, { PackingDetail } from "@/components/SubMaterialHelperSheet";
 import { TX_TYPES, TxCode } from "@/constants/transaction";
 import { useAuth } from "@/context/AuthProvider";
 import { useUI } from "@/context/UIProvider";
@@ -53,6 +56,10 @@ export default function InboundWorkPage() {
   
   const [processing, setProcessing] = useState(false);
   const [showLocModal, setShowLocModal] = useState(false);
+
+  // 🚀 [추가] 스마트 계산기 관련 상태
+  const [showHelperSheet, setShowHelperSheet] = useState(false);
+  const [packingDetails, setPackingDetails] = useState<PackingDetail[]>([]);
   
   const formRef = useRef<HTMLDivElement>(null);
 
@@ -83,6 +90,8 @@ export default function InboundWorkPage() {
     setSelectedLocs([]);
     setIsMultiMode(false);
     setUnitQty("");
+    // 🚀 [추가] 다른 품목 선택 시 계산기 데이터 초기화
+    setPackingDetails([]);
 
     const isSub = detail.item_master.item_type === SUB_MATERIAL_TYPE || detail.item_master.lot_required === 'N';
     if (isSub) {
@@ -100,23 +109,21 @@ export default function InboundWorkPage() {
     }
   };
 
-  // 🚀 [추가] 품목의 유형과 단위에 따라 최대 소수점 자릿수를 계산하는 함수
   const getMaxDecimal = () => {
     if (!selectedDetail) return 0;
     const type = selectedDetail.item_master.item_type;
     const uom = selectedDetail.item_master.uom;
 
-    if (uom === 'KM') return 3; // 롤 부자재: 3자리
-    if (type === '원자재' || type === '원료') return 2; // 원자재: 2자리
-    return 0; // 나머지는 정수 (0자리)
+    if (uom === 'KM') return 3; 
+    if (type === '원자재' || type === '원료') return 2; 
+    return 0; 
   };
 
-  // 🚀 [수정] 동적으로 소수점 자릿수를 제한하는 완벽한 정규식 필터
   const sanitizeDecimalInput = (val: string, maxDec: number) => {
     let sanitized = val.replace(/[^0-9.]/g, ''); 
     
     if (maxDec === 0) {
-        return sanitized.replace(/\./g, ''); // 0자리(정수)면 소수점 입력 자체를 막음
+        return sanitized.replace(/\./g, ''); 
     }
 
     const parts = sanitized.split('.');
@@ -124,7 +131,6 @@ export default function InboundWorkPage() {
       sanitized = parts[0] + '.' + parts.slice(1).join('');
     }
     
-    // 허용된 소수점 자릿수까지만 자름
     const finalParts = sanitized.split('.');
     if (finalParts.length === 2 && finalParts[1].length > maxDec) {
         sanitized = finalParts[0] + '.' + finalParts[1].slice(0, maxDec);
@@ -135,13 +141,28 @@ export default function InboundWorkPage() {
 
   const handleQtyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInputQty(sanitizeDecimalInput(e.target.value, getMaxDecimal()));
+    // 직접 수정 시 박스 정보 초기화 (불일치 방지)
+    setPackingDetails([]); 
   };
 
   const handleUnitQtyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setUnitQty(sanitizeDecimalInput(e.target.value, getMaxDecimal()));
   };
 
-  // 계산 로직 (Number 변환)
+  const handleExpDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let val = e.target.value.replace(/[^0-9]/g, ""); 
+    if (val.length > 8) val = val.slice(0, 8); 
+
+    let formatted = val;
+    if (val.length > 6) {
+        formatted = `${val.slice(0, 4)}-${val.slice(4, 6)}-${val.slice(6)}`;
+    } else if (val.length > 4) {
+        formatted = `${val.slice(0, 4)}-${val.slice(4)}`;
+    }
+    
+    setExpDate(formatted);
+  };
+
   const totalInputQty = Number(inputQty) || 0;
   const unitQtyNum = Number(unitQty) || 0;
   const requiredCells = (isMultiMode && unitQtyNum > 0 && totalInputQty > 0) 
@@ -176,7 +197,7 @@ export default function InboundWorkPage() {
     const isSub = selectedDetail.item_master.item_type === SUB_MATERIAL_TYPE || selectedDetail.item_master.lot_required === 'N';
     if (!isSub) {
         if (!lotNo) return toast.warning("LOT 번호를 입력해주세요.");
-        if (!expDate) return toast.warning("유통기한을 입력해주세요.");
+        if (!expDate || expDate.length !== 10) return toast.warning("유효한 유통기한(8자리)을 입력해주세요."); 
     }
 
     const msg = isMultiMode 
@@ -191,7 +212,6 @@ export default function InboundWorkPage() {
       const distribution = isMultiMode 
         ? selectedLocs.map((loc, idx) => {
             const isLast = idx === selectedLocs.length - 1;
-            // 🚀 정밀한 소수점 오차 처리 유지
             const remain = Number((qtyNum - (unitQtyNum * idx)).toFixed(4));
             const allocQty = isLast ? remain : unitQtyNum;
             return { locId: loc, qty: allocQty };
@@ -207,6 +227,8 @@ export default function InboundWorkPage() {
             .eq("lot_no", lotNo || 'DEFAULT')
             .maybeSingle();
 
+          let currentInvenId = existInven?.id;
+
           if (existInven) {
             await supabase.from("inventory").update({
               quantity: existInven.quantity + dist.qty, 
@@ -214,7 +236,8 @@ export default function InboundWorkPage() {
               updated_by: user.id 
             }).eq("id", existInven.id);
           } else {
-            await supabase.from("inventory").insert({
+            // 🚀 [수정] 새로 생성된 inventory의 ID를 가져오도록 select() 추가
+            const { data: newInven } = await supabase.from("inventory").insert({
               location_code: dist.locId, 
               item_key: selectedDetail.item_key, 
               quantity: dist.qty,
@@ -224,7 +247,22 @@ export default function InboundWorkPage() {
               inbound_date: nowISO,
               updated_at: nowISO,
               updated_by: user.id 
-            });
+            }).select("id").single();
+            
+            if (newInven) currentInvenId = newInven.id;
+          }
+
+          // 📦 [추가] 부자재 박스 상세 정보 저장 로직 (단일 모드일 때만 적용)
+          if (currentInvenId && packingDetails.length > 0 && !isMultiMode) {
+             const packingInserts = packingDetails.map(p => ({
+                inventory_id: currentInvenId,
+                pack_type: p.pack_type,
+                unit_qty: p.unit_qty,
+                pack_count: p.pack_count,
+                total_qty: p.total_qty,
+                updated_by: user.id
+             }));
+             await supabase.from("inventory_packing_info").insert(packingInserts);
           }
 
           await supabase.from("stock_tx").insert({
@@ -254,6 +292,7 @@ export default function InboundWorkPage() {
 
       toast.success("성공적으로 입고 처리되었습니다.");
       setSelectedDetail(null);
+      setPackingDetails([]); // 성공 후 데이터 초기화
       fetchData(); 
 
     } catch (e: any) {
@@ -324,7 +363,6 @@ export default function InboundWorkPage() {
                   <div className="flex-1 min-w-0 pr-2">
                     <div className="text-sm md:text-lg font-bold text-slate-100 flex items-center gap-2 truncate">
                         <span className="truncate">{row.item_master.item_name}</span>
-                        {/* 🚀 [변경] 부자재/원자재 뱃지 색상 통일성 부여 */}
                         {row.item_master.item_type === '원자재' ? (
                             <span className="text-[10px] bg-lime-900/50 border border-lime-700/50 px-1.5 py-0.5 rounded text-lime-400 shrink-0">원자재</span>
                         ) : (
@@ -375,10 +413,13 @@ export default function InboundWorkPage() {
                 <div>
                   <div className="flex justify-between items-end mb-2">
                     <label className="block text-sm text-slate-400 font-bold">입고 대상 총 수량</label>
-                    {/* 🚀 사용자 안내용 제약조건 표시 */}
-                    <span className="text-[10px] text-blue-400 font-mono bg-blue-900/20 px-1.5 py-0.5 rounded border border-blue-900/50">
-                        {currentMaxDec === 0 ? "정수 입력만 가능" : `소수점 ${currentMaxDec}자리까지 허용`}
-                    </span>
+                    {/* 🚀 [추가] 스마트 계산기 버튼 연동 */}
+                    <button 
+                      onClick={() => setShowHelperSheet(true)}
+                      className="flex items-center gap-1.5 px-3 py-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 text-blue-400 rounded-lg text-xs font-bold transition shadow-sm"
+                    >
+                      <Calculator size={14} /> 스마트 계산기
+                    </button>
                   </div>
                   <input 
                     type="text" inputMode="decimal"
@@ -387,6 +428,9 @@ export default function InboundWorkPage() {
                     onChange={handleQtyChange}
                     placeholder={placeholderValue} 
                   />
+                  {packingDetails.length > 0 && (
+                      <p className="text-xs text-emerald-400 mt-2 text-right">✓ 박스/잔량 상세정보가 저장되었습니다.</p>
+                  )}
                 </div>
 
                 <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800 w-full mb-2">
@@ -486,11 +530,14 @@ export default function InboundWorkPage() {
                     <div>
                         <label className="block text-sm text-slate-400 mb-2 font-bold flex items-center gap-1"><Calendar size={14}/> 유통기한</label>
                         <input 
-                            type="date" 
+                            type="text" 
+                            inputMode="numeric"
+                            maxLength={10}
                             className="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white focus:border-blue-500 outline-none h-12 transition" 
                             value={expDate} 
-                            onChange={(e) => setExpDate(e.target.value)} 
+                            onChange={handleExpDateChange} 
                             disabled={isSubMaterial}
+                            placeholder="예: 20290112"
                         />
                     </div>
                 </div>
@@ -533,6 +580,21 @@ export default function InboundWorkPage() {
             }}
         />
       )}
+
+      {/* 🚀 [추가] 부자재 스마트 계산기 바텀 시트 연동 */}
+      {/* 🚀 [수정] targetQty 프롭스 추가 */}
+      <SubMaterialHelperSheet
+        isOpen={showHelperSheet}
+        onClose={() => setShowHelperSheet(false)}
+        itemName={selectedDetail?.item_master.item_name || ""}
+        maxDecimal={currentMaxDec}
+        targetQty={selectedDetail ? selectedDetail.plan_qty - selectedDetail.received_qty : 0} // 👈 이 줄 추가!
+        onApply={(totalQty, details) => {
+          setInputQty(String(totalQty)); 
+          setPackingDetails(details);    
+          toast.success("스마트 계산기: 수량 및 박스 정보가 적용되었습니다.");
+        }}
+      />
     </div>
   );
 }

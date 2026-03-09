@@ -10,6 +10,14 @@ import Link from "next/link";
 // 🚀 Next.js 캐싱 방지 (실시간 데이터 중요)
 export const dynamic = 'force-dynamic';
 
+// 📦 새로 추가된 포장(박스/잔량) 정보 타입
+export interface PackingInfo {
+  pack_type: "BOX" | "LOOSE";
+  unit_qty: number;
+  pack_count: number;
+  total_qty: number;
+}
+
 // 📦 데이터 타입 정의
 export interface InventoryItem {
   id: number;
@@ -21,12 +29,13 @@ export interface InventoryItem {
   status: string;
   updated_at: string;
   inbound_date: string;
-  // Join된 데이터는 배열이나 객체 형태로 올 수 있으므로 유연하게 처리
   item_master: {
     item_name: string;
     uom: string;
     item_type?: string;
   } | null;
+  // 🚀 [추가] 박스 상세 정보 배열 추가
+  inventory_packing_info?: PackingInfo[]; 
 }
 
 export default async function InventoryPage({
@@ -48,7 +57,6 @@ export default async function InventoryPage({
   // [모드 1] QR 스캔 결과 처리
   // =========================================================
   if (qrLocation) {
-    // 1. 해당 위치에 재고가 있는지 확인 (count만 빠르게 조회)
     const { count, error } = await supabase
         .from("inventory") 
         .select('*', { count: 'exact', head: true }) 
@@ -60,16 +68,12 @@ export default async function InventoryPage({
 
     const hasInventory = count !== null && count > 0;
 
-    // 🚀 [핵심] 재고가 있으면 -> '재고 검색 결과 화면'으로 리다이렉트!
-    // 이렇게 하면 사용자는 해당 위치의 재고 목록을 바로 볼 수 있습니다.
     if (hasInventory) {
         redirect(`/inventory?search=true&query=${qrLocation}`);
     }
 
-    // 📦 [Case A] 재고가 없음 -> '빈 로케이션' 안내 및 입고 유도 화면 표시
     return (
         <div className="min-h-screen bg-black text-white p-4 md:p-8 animate-fade-in pb-24">
-            {/* 상단 네비게이션 */}
             <div className="flex items-center gap-4 mb-6">
                 <Link href="/dashboard" className="p-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors">
                     <ArrowLeft className="text-gray-400" />
@@ -110,7 +114,6 @@ export default async function InventoryPage({
   // [모드 2] 일반 재고 조회 모드
   // =========================================================
 
-  // 1. 검색 조건이 없으면 -> '검색 폼' 표시
   if (params.search !== "true") {
     const [locations, items] = await Promise.all([
       getAllLocations(supabase),
@@ -118,10 +121,10 @@ export default async function InventoryPage({
     ]);
     const zones = extractUniqueZones(locations);
     
-    return <InventorySearchForm zones={zones} items={items as Item[]} />;
+    // 🚀 [타입 에러 해결] Partial<Item> 배열을 받거나 강제 우회 (여기서는 as Item[] 이 아닌 unknown을 거침)
+    return <InventorySearchForm zones={zones} items={items as unknown as Item[]} />;
   }
 
-  // 2. 검색 조건이 있으면 -> '재고 목록' 조회 및 표시
   const page = params.page ? Number(params.page) : 1;
   const rawQuery = params.query ? String(params.query) : "";
   const query = decodeURIComponent(rawQuery).trim();
@@ -129,12 +132,13 @@ export default async function InventoryPage({
   const zonesParam = params.zones ? String(params.zones) : ""; 
   const ITEMS_PER_PAGE = 20; 
 
-  // Supabase Query 빌드 (Join 포함)
+  // 🚀 [쿼리 조인 추가] inventory_packing_info를 가져오도록 수정
   let dbQuery = supabase
     .from("inventory") 
     .select(`
         *,
-        item_master!inner (item_name, uom, item_type)
+        item_master!inner (item_name, uom, item_type),
+        inventory_packing_info (pack_type, unit_qty, pack_count, total_qty)
     `)
     .order("location_code", { ascending: true });
 
@@ -144,7 +148,6 @@ export default async function InventoryPage({
     return <div className="p-8 text-red-500 font-bold">데이터 로딩 실패: {dbError.message}</div>;
   }
 
-  // 데이터 필터링 (클라이언트 요구사항 반영)
   let filteredInventory = (rawInventory || []) as InventoryItem[];
 
   if (team === 'PRODUCTION') {
@@ -153,7 +156,6 @@ export default async function InventoryPage({
     filteredInventory = filteredInventory.filter(i => i.location_code.startsWith("2F"));
   }
 
-  // 검색어 필터링 (다중 키워드 지원)
   if (query) {
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
     filteredInventory = filteredInventory.filter(item => {
@@ -168,13 +170,11 @@ export default async function InventoryPage({
     });
   }
 
-  // 페이지네이션 처리
   const totalCount = filteredInventory.length;
   const startIdx = (page - 1) * ITEMS_PER_PAGE;
   const endIdx = startIdx + ITEMS_PER_PAGE;
   const paginatedInventory = filteredInventory.slice(startIdx, endIdx);
 
-  // 상단 안내 텍스트 생성
   const getConditionText = () => {
     if (query) return `검색어: "${query}"`;
     if (zonesParam) return `구역: [${zonesParam.replaceAll(',', ', ')}]`;

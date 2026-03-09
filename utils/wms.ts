@@ -51,18 +51,19 @@ async function fetchAllData(
 }
 
 /**
- * ✅ 1. 모든 로케이션 정보 가져오기 (수정됨: 모달 깨짐 방지)
+ * ✅ 1. 모든 로케이션 정보 가져오기 (수정됨: 모달 깨짐 방지 + 박스 상세 정보 조인)
  * - 기존: zone, loc_id만 가져와서 모달에서 정보 부족 발생
- * - 수정: '*' (모든 컬럼) + inventory (재고 상태) 포함
+ * - 수정: '*' (모든 컬럼) + inventory (재고 상태) + inventory_packing_info (박스 상세 정보) 포함
  */
 export const getAllLocations = async (supabase: SupabaseClient) => {
   // 🚨 [핵심 수정] 랙 정보를 그리기 위해 모든 컬럼(*)과 재고 정보를 가져옵니다.
-  // 🚀 item_type을 쉼표(,)와 함께 추가했습니다!
+  // 🚀 inventory_packing_info를 추가하여 박스 및 잔량 상세 정보를 함께 불러옵니다!
   const selectQuery = `
     *,
     inventory (
       quantity,
-      item_master ( item_name, item_type )
+      item_master ( item_name, item_type, uom ),
+      inventory_packing_info ( pack_type, unit_qty, pack_count, total_qty )
     )
   `;
 

@@ -3,8 +3,11 @@
 import { createClient } from "@/utils/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
-import { ArrowLeft, Search, Package, Check, Calendar, Hash, Layers } from "lucide-react";
+// 🚀 [수정] Calculator 아이콘 추가
+import { ArrowLeft, Search, Package, Check, Calendar, Hash, Layers, Calculator } from "lucide-react";
 import LocationMapSelector from "@/components/LocationMapSelector"; 
+// 🚀 [추가] 스마트 계산기 컴포넌트 임포트
+import SubMaterialHelperSheet, { PackingDetail } from "@/components/SubMaterialHelperSheet";
 import { TX_TYPES, TxCode, getTxTypesByGroup } from '@/constants/transaction';
 import { useAuth } from "@/context/AuthProvider";
 import { useUI } from "@/context/UIProvider";
@@ -56,6 +59,10 @@ export default function DirectInboundPage() {
   const [showLocModal, setShowLocModal] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // 🚀 [추가] 스마트 계산기 상태 관리
+  const [showHelperSheet, setShowHelperSheet] = useState(false);
+  const [packingDetails, setPackingDetails] = useState<PackingDetail[]>([]);
+
   useEffect(() => {
     const fetchData = async () => {
       const { data: itemData } = await supabase.from("item_master").select("*").eq("active_flag", "Y");
@@ -86,12 +93,12 @@ export default function DirectInboundPage() {
     setSelectedItem(item);
     setItemSearchTerm("");
     
-    // 🚀 [버그 수정] 위치 코드(locationCode) 초기화 로직 삭제!
-    // 기존에 있던 setLocationCode(""); 를 지워서 맵에서 넘어온 값이 유지되게 합니다.
     setQty("");
     setUnitQty("");
     setSelectedLocs([]);
     setIsMultiMode(false);
+    // 🚀 [추가] 품목이 바뀌면 계산기 데이터 초기화
+    setPackingDetails([]);
     
     if (item.item_type === SUB_MATERIAL_TYPE || item.lot_required === 'N') {
       setLotNo('N/A');
@@ -125,10 +132,26 @@ export default function DirectInboundPage() {
 
   const handleQtyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setQty(sanitizeDecimalInput(e.target.value, getMaxDecimal()));
+    // 🚀 [추가] 사용자가 직접 수량을 수정하면 기존 계산기 데이터 무효화
+    setPackingDetails([]);
   };
 
   const handleUnitQtyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setUnitQty(sanitizeDecimalInput(e.target.value, getMaxDecimal()));
+  };
+
+  const handleExpDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let val = e.target.value.replace(/[^0-9]/g, ""); 
+    if (val.length > 8) val = val.slice(0, 8); 
+
+    let formatted = val;
+    if (val.length > 6) {
+        formatted = `${val.slice(0, 4)}-${val.slice(4, 6)}-${val.slice(6)}`;
+    } else if (val.length > 4) {
+        formatted = `${val.slice(0, 4)}-${val.slice(4)}`;
+    }
+    
+    setExpDate(formatted);
   };
 
   const totalInputQty = Number(qty) || 0;
@@ -195,6 +218,8 @@ export default function DirectInboundPage() {
             .eq("lot_no", lotNo || 'DEFAULT')
             .maybeSingle();
 
+          let currentInvenId = existInven?.id;
+
           if (existInven) {
             await supabase.from("inventory").update({ 
                 quantity: existInven.quantity + dist.qty, 
@@ -202,7 +227,8 @@ export default function DirectInboundPage() {
                 updated_by: user.id 
             }).eq("id", existInven.id);
           } else {
-            await supabase.from("inventory").insert({
+            // 🚀 [수정] id 반환받도록 select("id") 추가
+            const { data: newInven } = await supabase.from("inventory").insert({
                 location_code: dist.locId, 
                 item_key: selectedItem.item_key, 
                 quantity: dist.qty, 
@@ -212,8 +238,22 @@ export default function DirectInboundPage() {
                 inbound_date: nowISO, 
                 updated_at: nowISO,
                 updated_by: user.id 
-            });
+            }).select("id").single();
+            if (newInven) currentInvenId = newInven.id;
           }
+
+          // 📦 [추가] 부자재 박스 상세 정보 저장 로직 (단일 모드일 때만 적용)
+          if (currentInvenId && packingDetails.length > 0 && !isMultiMode) {
+            const packingInserts = packingDetails.map(p => ({
+               inventory_id: currentInvenId,
+               pack_type: p.pack_type,
+               unit_qty: p.unit_qty,
+               pack_count: p.pack_count,
+               total_qty: p.total_qty,
+               updated_by: user.id
+            }));
+            await supabase.from("inventory_packing_info").insert(packingInserts);
+         }
 
           await supabase.from("stock_tx").insert({
             transaction_type: 'INBOUND',
@@ -346,10 +386,21 @@ export default function DirectInboundPage() {
         <div className="flex flex-col gap-4">
             <div className="flex-1 bg-slate-900 border border-slate-800 p-6 rounded-xl relative z-10">
                 <div className="flex justify-between items-end mb-2">
-                    <label className="block text-sm text-slate-400 font-bold">수량 (Qty)</label>
-                    <span className="text-[10px] text-blue-400 font-mono bg-blue-900/20 px-1.5 py-0.5 rounded border border-blue-900/50">
-                        {currentMaxDec === 0 ? "정수 입력만 가능" : `소수점 ${currentMaxDec}자리까지 허용`}
-                    </span>
+                    <div>
+                        <label className="block text-sm text-slate-400 font-bold">수량 (Qty)</label>
+                        <span className="text-[10px] text-blue-400 font-mono bg-blue-900/20 px-1.5 py-0.5 rounded border border-blue-900/50 mt-1 inline-block">
+                            {currentMaxDec === 0 ? "정수 입력만 가능" : `소수점 ${currentMaxDec}자리까지 허용`}
+                        </span>
+                    </div>
+                    {/* 🚀 [추가] 스마트 계산기 버튼 (품목이 선택되었을 때만 노출) */}
+                    {selectedItem && (
+                        <button 
+                            onClick={() => setShowHelperSheet(true)}
+                            className="flex items-center gap-1.5 px-3 py-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 text-blue-400 rounded-lg text-xs font-bold transition shadow-sm"
+                        >
+                            <Calculator size={14} /> 스마트 계산기
+                        </button>
+                    )}
                 </div>
                 <input 
                     type="text" inputMode="decimal"
@@ -358,6 +409,10 @@ export default function DirectInboundPage() {
                     value={qty}
                     onChange={handleQtyChange}
                 />
+                {/* 🚀 [추가] 계산기 적용 성공 메시지 */}
+                {packingDetails.length > 0 && (
+                    <p className="text-xs text-emerald-400 mt-2 text-right">✓ 박스/잔량 상세정보가 적용되었습니다.</p>
+                )}
             </div>
 
             <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800 w-full mb-2">
@@ -464,11 +519,14 @@ export default function DirectInboundPage() {
                             <Calendar size={14}/> 유통기한
                         </label>
                         <input 
-                            type="date" 
+                            type="text" 
+                            inputMode="numeric"
+                            maxLength={10}
                             className={`w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-white focus:border-blue-500 outline-none h-12 ${isSubMaterial ? 'text-slate-500 cursor-not-allowed bg-slate-900' : ''}`}
                             value={expDate}
-                            onChange={(e) => setExpDate(e.target.value)}
+                            onChange={handleExpDateChange}
                             disabled={isSubMaterial}
+                            placeholder={isSubMaterial ? "해당 없음" : "예: 20290112 (숫자만 입력)"}
                         />
                     </div>
                 </div>
@@ -502,6 +560,20 @@ export default function DirectInboundPage() {
             }}
         />
       )}
+
+      {/* 🚀 [추가] 부자재 스마트 계산기 바텀 시트 연동 (즉시 입고는 계획수량이 없으므로 targetQty=0) */}
+      <SubMaterialHelperSheet
+        isOpen={showHelperSheet}
+        onClose={() => setShowHelperSheet(false)}
+        itemName={selectedItem?.item_name || ""}
+        maxDecimal={currentMaxDec}
+        targetQty={0} 
+        onApply={(totalQty, details) => {
+          setQty(String(totalQty)); 
+          setPackingDetails(details);    
+          toast.success("스마트 계산기: 수량 및 박스 정보가 적용되었습니다.");
+        }}
+      />
 
     </div>
   );

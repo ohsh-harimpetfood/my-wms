@@ -4,10 +4,18 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Filter, Search, X, Map, Settings2 } from "lucide-react";
-import { ArrowRightLeft, LogOut, MapPin, Box } from "lucide-react";
+import { ArrowRightLeft, LogOut, MapPin, Box, Package, Hash } from "lucide-react"; // 🚀 아이콘 추가
 import PaginationControls from "@/components/PaginationControls";
 import InventoryAdjustmentModal from "@/components/InventoryAdjustmentModal";
 import { useAuth } from "@/context/AuthProvider";
+
+// 📦 포장(박스/잔량) 정보 타입 추가
+export interface PackingInfo {
+  pack_type: "BOX" | "LOOSE";
+  unit_qty: number;
+  pack_count: number;
+  total_qty: number;
+}
 
 export interface InventoryItem {
   id: number;
@@ -23,6 +31,8 @@ export interface InventoryItem {
     item_name: string;
     uom: string;
   } | null;
+  // 🚀 박스 상세 정보 배열 추가
+  inventory_packing_info?: PackingInfo[]; 
 }
 
 interface Props {
@@ -45,22 +55,18 @@ export default function InventoryListClient({
   const router = useRouter();
   const [localQuery, setLocalQuery] = useState("");
 
-  // 🚀 [수정] profile을 추가로 가져와 등급을 직접 확인합니다.
   const { profile, permissions } = useAuth();
 
-  // 🚀 [핵심 수정] ADMIN 등급은 무조건 통과, 그 외는 설정된 권한을 따름
   const canAdjust = useMemo(() => {
-    if (profile?.role === "ADMIN") return true; // 마스터 권한 바이패스
+    if (profile?.role === "ADMIN") return true;
     return permissions?.some(
       (p) => p.feature_key === "inventory_adjustment" && p.is_enabled
     );
   }, [profile, permissions]);
 
-  // 모달 상태 관리
   const [isAdjModalOpen, setIsAdjModalOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
 
-  // 조정 버튼 클릭 핸들러
   const handleOpenAdjustment = (item: InventoryItem) => {
     if (!canAdjust) return;
     setSelectedItem(item);
@@ -71,7 +77,6 @@ export default function InventoryListClient({
     router.refresh();
   };
 
-  // 실시간 필터링 로직
   const filteredList = useMemo(() => {
     if (!localQuery.trim()) return initialInventory;
     const lowerQuery = localQuery.toLowerCase();
@@ -240,6 +245,24 @@ const DesktopRow = ({ item, getMapLink, onAdjust, showAdjust }: {
     const outboundLink = `/outbound/new?loc=${item.location_code}&item=${item.item_key}&lot=${item.lot_no}&qty=${item.quantity}`;
     const moveLink = `/inventory/move?id=${item.id}&loc=${item.location_code}&item=${item.item_key}&lot=${item.lot_no}&qty=${item.quantity}`;
   
+    // 🚀 [추가] 박스 요약 텍스트 추출 로직
+    const packingDetails = item.inventory_packing_info || [];
+    const hasPackingInfo = packingDetails.length > 0;
+    
+    const getPackingSummary = () => {
+        if (!hasPackingInfo) return null;
+        const boxes = packingDetails.filter(p => p.pack_type === 'BOX');
+        const loose = packingDetails.find(p => p.pack_type === 'LOOSE');
+        let summary = [];
+        if (boxes.length > 0) {
+            summary.push(`📦 ${boxes.map(b => `${b.unit_qty}x${b.pack_count}`).join(', ')}`);
+        }
+        if (loose) {
+            summary.push(`# 잔량 ${loose.pack_count}`);
+        }
+        return summary.join(' | ');
+    };
+
     return (
       <tr className="bg-gray-900 hover:bg-gray-800 transition-colors h-[60px]">
         <td className="px-6 py-3 align-middle whitespace-nowrap">
@@ -258,8 +281,18 @@ const DesktopRow = ({ item, getMapLink, onAdjust, showAdjust }: {
           </div>
         </td>
         <td className="px-6 py-3 text-right align-middle whitespace-nowrap">
-          <span className="text-lg font-bold text-white tracking-tight">{item.quantity.toLocaleString()}</span>
-          <span className="text-xs text-gray-500 ml-1 font-normal">{item.item_master?.uom || "EA"}</span>
+          <div className="flex flex-col items-end gap-1">
+             <div>
+                <span className="text-lg font-bold text-white tracking-tight">{item.quantity.toLocaleString()}</span>
+                <span className="text-xs text-gray-500 ml-1 font-normal">{item.item_master?.uom || "EA"}</span>
+             </div>
+             {/* 🚀 [추가] 수량 아래에 박스/잔량 요약 정보 노출 */}
+             {hasPackingInfo && (
+                <div className="text-xs font-bold text-blue-300 font-mono bg-blue-900/20 px-1.5 py-0.5 rounded border border-blue-900/30">
+                    {getPackingSummary()}
+                </div>
+             )}
+          </div>
         </td>
         <td className="px-6 py-3 text-center align-middle whitespace-nowrap">
           <StatusBadge status={item.status} />
@@ -281,6 +314,10 @@ const MobileCard = ({ item, getMapLink, onAdjust, showAdjust }: {
     const outboundLink = `/outbound/new?loc=${item.location_code}&item=${item.item_key}&lot=${item.lot_no}&qty=${item.quantity}`;
     const moveLink = `/inventory/move?id=${item.id}&loc=${item.location_code}&item=${item.item_key}&lot=${item.lot_no}&qty=${item.quantity}`;
   
+    // 🚀 [추가] 모바일 카드용 박스 상세 리스트
+    const packingDetails = item.inventory_packing_info || [];
+    const hasPackingInfo = packingDetails.length > 0;
+
     return (
       <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 shadow-md active:border-blue-500/50 transition-colors relative">
         {showAdjust && (
@@ -301,12 +338,37 @@ const MobileCard = ({ item, getMapLink, onAdjust, showAdjust }: {
         </div>
         <div className="mb-4">
           <div className="text-base font-bold text-white mb-1 line-clamp-2">{item.item_master?.item_name}</div>
-          <div className="text-xs text-gray-500 font-mono mb-2 flex items-center gap-2">
+          <div className="text-xs text-gray-500 font-mono mb-3 flex items-center gap-2">
               <Box size={12} /> {item.item_key}
           </div>
-          <div className="flex items-baseline gap-1 text-white">
-            <span className="text-2xl font-bold tracking-tight">{item.quantity.toLocaleString()}</span>
-            <span className="text-sm text-gray-400">{item.item_master?.uom || "EA"}</span>
+          
+          <div className="flex flex-col gap-2">
+             <div className="flex items-baseline gap-1 text-white">
+                <span className="text-2xl font-bold tracking-tight">{item.quantity.toLocaleString()}</span>
+                <span className="text-sm text-gray-400">{item.item_master?.uom || "EA"}</span>
+             </div>
+             
+             {/* 🚀 [추가] 모바일 박스 상세 정보 블록 */}
+             {hasPackingInfo && (
+                <div className="bg-black/50 rounded-lg p-2.5 border border-gray-800 space-y-1.5 mt-1">
+                    {packingDetails.map((pack, idx) => (
+                        <div key={idx} className="flex justify-between items-center text-xs">
+                            {pack.pack_type === 'BOX' ? (
+                                <span className="text-blue-300 flex items-center gap-1">
+                                    <Package size={12} /> {pack.unit_qty}입 x {pack.pack_count}박스
+                                </span>
+                            ) : (
+                                <span className="text-emerald-400 flex items-center gap-1">
+                                    <Hash size={12} /> 잔량
+                                </span>
+                            )}
+                            <span className="font-bold text-gray-300">
+                                {pack.total_qty.toLocaleString()}개
+                            </span>
+                        </div>
+                    ))}
+                </div>
+             )}
           </div>
         </div>
         <div className="flex gap-2">
