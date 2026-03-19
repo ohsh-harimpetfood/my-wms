@@ -16,7 +16,6 @@ interface Item {
   item_type?: string;
 }
 
-// 🚀 [수정] required_qty를 string으로 변경하여 소수점 입력 안정성 확보
 interface CartItem {
   item: Item;
   required_qty: string;
@@ -71,7 +70,6 @@ export default function BulkOutboundPage() {
     }).slice(0, 10); 
   }, [searchTerm, allItems]);
 
-  // --- 0. 🚀 [추가] 소수점 제어 로직 ---
   const getMaxDecimal = (item: Item) => {
     if (item.uom === 'KM') return 3;
     if (item.item_type === '원자재' || item.item_type === '원료') return 2;
@@ -92,7 +90,6 @@ export default function BulkOutboundPage() {
     return sanitized;
   };
 
-  // --- 1. 장바구니 핸들러 ---
   const addToCart = (item: Item) => {
     if (cart.find(c => c.item.item_key === item.item_key)) {
         toast.warning("이미 추가된 품목입니다.");
@@ -100,13 +97,11 @@ export default function BulkOutboundPage() {
         setShowDropdown(false);
         return;
     }
-    // 🚀 초기값을 빈 문자열로 설정
     setCart([...cart, { item, required_qty: "" }]);
     setSearchTerm("");
     setShowDropdown(false);
   };
 
-  // 🚀 [수정] 수량 업데이트 시 정규식 필터 통과
   const updateCartQty = (index: number, val: string) => {
     const item = cart[index].item;
     const maxDec = getMaxDecimal(item);
@@ -123,7 +118,6 @@ export default function BulkOutboundPage() {
     setAllocations(allocations.filter(a => a.item_key !== removedItemKey));
   };
 
-  // --- 2. 개별 품목 FIFO 자동 제안 ---
   const handleAutoAllocateItem = async (c: CartItem) => {
     const reqQtyNum = Number(c.required_qty);
     if (!reqQtyNum || reqQtyNum <= 0) return uiAlert("지시 수량을 먼저 올바르게 입력해주세요.", "warning");
@@ -166,7 +160,6 @@ export default function BulkOutboundPage() {
                 current_qty: row.quantity,
                 allocated_qty: take 
             });
-            // 🚀 부동소수점 오차 방지
             needed = Number((needed - take).toFixed(4));
         }
 
@@ -187,7 +180,7 @@ export default function BulkOutboundPage() {
       setAllocations(allocations.filter(a => a.id !== id));
   };
 
-  // --- 3. 수동 맵 선택 ---
+  // 🚀 [버그픽스 2] 셔틀랙 다중 적재 시 사용자에게 알림 추가
   const handleManualLocationsMulti = async (locIds: string[]) => {
       if (!activeItemForLoc || locIds.length === 0) return;
       
@@ -224,11 +217,16 @@ export default function BulkOutboundPage() {
           toast.info("이미 할당 리스트에 추가된 위치입니다.");
       } else {
           setAllocations([...allocations, ...newAdditions]);
-          toast.success(`${newAdditions.length}개의 파렛트가 추가되었습니다.`);
+          
+          // 맵에서 6칸을 골랐는데 재고가 8개가 딸려오면 경고를 띄웁니다!
+          if (newAdditions.length > locIds.length) {
+              uiAlert(`선택한 ${locIds.length}개 위치에서 총 ${newAdditions.length}개의 파렛트가 발견되어 모두 가져왔습니다. (셔틀랙 이중적재)\n\n필요 없는 파렛트는 우측 리스트에서 'X'를 눌러 제외하세요.`, "info");
+          } else {
+              toast.success(`${newAdditions.length}개의 파렛트가 추가되었습니다.`);
+          }
       }
   };
 
-  // --- 4. 최종 확정 ---
   const executeBulkOutbound = async () => {
       if (!user) return toast.error("로그인 정보가 없습니다.");
       
@@ -236,24 +234,33 @@ export default function BulkOutboundPage() {
       if (validAllocations.length === 0) return uiAlert("출고할 할당 데이터가 없습니다.", "warning");
 
       let isMismatch = false;
+      let isOver = false;
       for (const c of cart) {
           const totalAllocated = validAllocations.filter(a => a.item_key === c.item.item_key).reduce((sum, a) => sum + a.allocated_qty, 0);
-          // 🚀 Number()로 변환해서 비교
           if (totalAllocated < Number(c.required_qty)) isMismatch = true;
+          // 🚀 [추가] 지시 수량보다 과다하게 할당된 경우 감지
+          if (totalAllocated > Number(c.required_qty)) isOver = true;
       }
 
-      const confirmMsg = isMismatch 
-        ? `[주의] 할당된 총량이 지시 수량보다 부족한 품목이 있습니다.\n\n이대로 ${validAllocations.length}개 톤백(셀)을 일괄 출고하시겠습니까?`
-        : `총 ${validAllocations.length}개 톤백(셀)을 전량 일괄 출고하시겠습니까?`;
+      let confirmMsg = `총 ${validAllocations.length}개 톤백(파렛트)을 전량 일괄 출고하시겠습니까?`;
+      if (isMismatch) {
+          confirmMsg = `[주의] 할당된 총량이 지시 수량보다 부족한 품목이 있습니다.\n\n` + confirmMsg;
+      } else if (isOver) {
+          confirmMsg = `[경고 🚨] 지시 수량보다 더 많은 파렛트가 할당되었습니다! (셔틀랙 일괄 선택 등)\n우측 리스트를 다시 한번 확인해 주세요.\n\n` + confirmMsg;
+      }
 
-      if (!(await confirm(confirmMsg, "info"))) return;
+      if (!(await confirm(confirmMsg, isOver ? "error" : "info"))) return;
 
       setLoading(true);
       try {
-          const nowISO = new Date().toISOString();
-
           await Promise.all(validAllocations.map(async (alloc) => {
+              // 🚀 [버그픽스 1] 박스 정보(잔량) 먼저 완벽하게 삭제하여 무한 증식 원천 차단
+              await supabase.from("inventory_packing_info").delete().eq("inventory_id", alloc.inventory_id);
+
+              // 메인 재고 삭제
               await supabase.from("inventory").delete().eq("id", alloc.inventory_id);
+              
+              // 수불 이력 등록
               await supabase.from("stock_tx").insert({
                   transaction_type: 'OUTBOUND',
                   io_type: 'OUT',
@@ -280,7 +287,6 @@ export default function BulkOutboundPage() {
   };
 
   return (
-    // 🚀 [톤업] bg-black -> bg-slate-950
     <div className="p-4 md:p-8 bg-slate-950 min-h-screen text-slate-100 font-[family-name:var(--font-geist-sans)] pb-32">
       <div className="flex items-center gap-4 mb-6 border-b border-slate-800 pb-4 sticky top-0 bg-slate-950/90 backdrop-blur-sm z-30 pt-2">
         <button onClick={() => router.back()} className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition"><ArrowLeft /></button>
@@ -352,9 +358,7 @@ export default function BulkOutboundPage() {
                         </div>
                     ) : (
                         cart.map((c, idx) => {
-                            // 🚀 [추가] 제한 안내용 텍스트
                             const maxDec = getMaxDecimal(c.item);
-                            
                             return (
                                 <div key={idx} className="bg-slate-950 border border-slate-800 rounded-lg p-4 flex flex-col gap-3 shadow-inner">
                                     <div className="flex justify-between items-start">
@@ -428,7 +432,6 @@ export default function BulkOutboundPage() {
 
                             const totalAllocated = myAllocations.reduce((sum, a) => sum + a.allocated_qty, 0);
                             const reqQtyNum = Number(c.required_qty) || 0;
-                            // 🚀 소수점 오차 무시하고 목표량 이상인지 확인 (여유있게 크면 만족)
                             const isSatisfied = totalAllocated >= reqQtyNum - 0.0001; 
 
                             return (
