@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, RotateCcw, Box, MapPin, Layers, Factory, Truck, CheckCircle2, Package } from "lucide-react";
+import { Search, RotateCcw, Box, MapPin, Layers, Factory, Truck, CheckCircle2, Package, Snowflake } from "lucide-react";
 
 interface Props {
   zones: string[];
   items: any[]; 
 }
+
+type TabType = "ALL" | "LOGISTICS" | "PRODUCTION" | "CONTAINER";
 
 export default function InventorySearchForm({ zones, items }: Props) {
   const router = useRouter();
@@ -16,13 +18,19 @@ export default function InventorySearchForm({ zones, items }: Props) {
   const [showItemDropdown, setShowItemDropdown] = useState(false);
   
   const [selectedZones, setSelectedZones] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState<"ALL" | "LOGISTICS" | "PRODUCTION">("PRODUCTION");
+  const [activeTab, setActiveTab] = useState<TabType>("PRODUCTION");
   const [loading, setLoading] = useState(false);
 
-  // ✨ 서버에서 받아온 전체 Zone 리스트를 분류
-  // 2F가 포함되면 물류, 아니면 생산
+  // ✨ Zone 리스트 정제 및 분류 (CT 및 공백 완벽 제거)
   const logisticsZones = zones.filter(z => z.includes('2F')).sort();
-  const productionZones = zones.filter(z => !z.includes('2F')).sort();
+  const productionZones = zones.filter(z => 
+    !z.includes('2F') && 
+    !z.includes('CT') && 
+    z.trim() !== ''
+  ).sort();
+
+  // ❄️ 냉동 컨테이너 1~13번 고정 배열
+  const containerNumbers = Array.from({ length: 13 }, (_, i) => String(i + 1));
 
   // 검색어 자동완성 필터링
   const filteredItems = keyword.trim() 
@@ -33,7 +41,7 @@ export default function InventorySearchForm({ zones, items }: Props) {
       }).slice(0, 8) 
     : [];
 
-  const handleTabChange = (tab: "ALL" | "LOGISTICS" | "PRODUCTION") => {
+  const handleTabChange = (tab: TabType) => {
     setActiveTab(tab);
     setSelectedZones([]); 
   };
@@ -50,14 +58,24 @@ export default function InventorySearchForm({ zones, items }: Props) {
     setLoading(true);
     const params = new URLSearchParams();
     params.set("search", "true");
-    if (keyword) params.set("query", keyword);
 
-    if (activeTab !== "ALL") {
-       params.set("team", activeTab); 
-       if (selectedZones.length > 0) {
-         params.set("zones", selectedZones.join(","));
-       }
+    if (keyword) {
+      // 🚀 핵심 변경: 검색어가 입력된 경우, 하위 탭/구역 조건을 무시하고 무조건 전체 검색 수행!
+      params.set("query", keyword);
+      
+      // UX 개선: 전체 검색이 실행되었음을 인지할 수 있도록 UI 탭도 '전체 보기'로 자동 변경 및 구역 초기화
+      setActiveTab("ALL");
+      setSelectedZones([]);
+    } else {
+      // 검색어가 없을 때만 현재 선택된 탭과 구역 조건으로 필터링
+      if (activeTab !== "ALL") {
+         params.set("team", activeTab); 
+         if (selectedZones.length > 0) {
+           params.set("zones", selectedZones.join(","));
+         }
+      }
     }
+    
     router.push(`/inventory?${params.toString()}`);
   };
 
@@ -93,31 +111,38 @@ export default function InventorySearchForm({ zones, items }: Props) {
             <MapPin size={16} /> 보관 위치 (Storage Location)
           </label>
 
-          {/* 1. 상단 탭 버튼 (모바일 가독성 개선) */}
-          <div className="grid grid-cols-3 gap-1 md:gap-2 bg-gray-950 p-1 rounded-lg mb-4 border border-gray-800">
+          {/* 1. 상단 탭 버튼 (4개로 분할) */}
+          <div className="grid grid-cols-4 gap-1 md:gap-2 bg-gray-950 p-1 rounded-lg mb-4 border border-gray-800">
             <button
               onClick={() => handleTabChange("PRODUCTION")}
-              className={`py-2 md:py-2.5 rounded-md text-[11px] md:text-sm font-bold transition-all flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 ${
+              className={`py-2 md:py-2.5 rounded-md text-[10px] md:text-sm font-bold transition-all flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 ${
                 activeTab === "PRODUCTION" ? "bg-purple-900/50 text-purple-400 shadow ring-1 ring-purple-500/50" : "text-gray-500 hover:text-gray-300"
               }`}
             >
               <Factory size={16} className="mb-0.5 md:mb-0"/>
               <span className="whitespace-nowrap">생산팀</span>
-              <span className="hidden md:inline opacity-70 text-[10px] md:text-xs">(랙 A~S)</span>
+            </button>
+            <button
+              onClick={() => handleTabChange("CONTAINER")}
+              className={`py-2 md:py-2.5 rounded-md text-[10px] md:text-sm font-bold transition-all flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 ${
+                activeTab === "CONTAINER" ? "bg-cyan-900/50 text-cyan-400 shadow ring-1 ring-cyan-500/50" : "text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              <Snowflake size={16} className="mb-0.5 md:mb-0"/>
+              <span className="whitespace-nowrap">컨테이너</span>
             </button>
             <button
               onClick={() => handleTabChange("LOGISTICS")}
-              className={`py-2 md:py-2.5 rounded-md text-[11px] md:text-sm font-bold transition-all flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 ${
+              className={`py-2 md:py-2.5 rounded-md text-[10px] md:text-sm font-bold transition-all flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 ${
                 activeTab === "LOGISTICS" ? "bg-blue-900/50 text-blue-400 shadow ring-1 ring-blue-500/50" : "text-gray-500 hover:text-gray-300"
               }`}
             >
               <Truck size={16} className="mb-0.5 md:mb-0"/>
               <span className="whitespace-nowrap">물류팀</span>
-              <span className="hidden md:inline opacity-70 text-[10px] md:text-xs">(창고 2F)</span>
             </button>
              <button
               onClick={() => handleTabChange("ALL")}
-              className={`py-2 md:py-2.5 rounded-md text-[11px] md:text-sm font-bold transition-all flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 ${
+              className={`py-2 md:py-2.5 rounded-md text-[10px] md:text-sm font-bold transition-all flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 ${
                 activeTab === "ALL" ? "bg-gray-800 text-white shadow ring-1 ring-gray-600" : "text-gray-500 hover:text-gray-300"
               }`}
             >
@@ -157,7 +182,35 @@ export default function InventorySearchForm({ zones, items }: Props) {
                 </div>
               )}
 
-              {/* B. 물류팀 구역 리스트 */}
+              {/* B. 냉동 컨테이너 리스트 (신규 추가) */}
+              {activeTab === "CONTAINER" && (
+                <div className="w-full">
+                  <div className="text-[10px] md:text-xs text-cyan-300 mb-3 font-bold flex flex-col md:flex-row items-start md:items-center justify-between gap-1 bg-cyan-900/20 p-2 rounded border border-cyan-500/30">
+                     <span className="flex items-center gap-1"><CheckCircle2 size={12}/> 컨테이너 번호(1~13) 다중 선택 가능</span>
+                     <span className="opacity-80">선택하지 않으면 [컨테이너 전체] 조회</span>
+                  </div>
+                  <div className="grid grid-cols-5 md:grid-cols-7 gap-1.5 md:gap-2 animate-fade-in">
+                    {containerNumbers.map((num) => {
+                       const isSelected = selectedZones.includes(num);
+                       return (
+                        <button
+                          key={num}
+                          onClick={() => toggleZone(num)}
+                          className={`py-2 text-xs md:text-sm rounded border transition-all relative ${
+                            isSelected 
+                              ? "bg-cyan-600 text-white border-cyan-400 font-bold shadow-[0_0_10px_rgba(6,182,212,0.5)]" 
+                              : "bg-gray-900 text-gray-400 border-gray-700 hover:bg-gray-800"
+                          }`}
+                        >
+                          {num}호
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* C. 물류팀 구역 리스트 */}
               {activeTab === "LOGISTICS" && (
                 <div className="w-full">
                   <div className="text-[10px] md:text-xs text-blue-300 mb-3 font-bold flex flex-col md:flex-row items-start md:items-center justify-between gap-1 bg-blue-900/20 p-2 rounded border border-blue-500/30">
@@ -185,11 +238,11 @@ export default function InventorySearchForm({ zones, items }: Props) {
                 </div>
               )}
 
-              {/* C. 전체 보기 메시지 */}
+              {/* D. 전체 보기 메시지 */}
               {activeTab === "ALL" && (
                 <div className="text-xs md:text-sm text-gray-500 text-center w-full flex flex-col items-center gap-2 py-4">
                   <Layers size={32} className="text-gray-700"/>
-                  <span>모든 구역(생산팀 + 물류팀)의 전체 재고를 조회합니다.</span>
+                  <span>모든 구역(생산팀 + 컨테이너 + 물류팀)의 전체 재고를 조회합니다.</span>
                 </div>
               )}
           </div>

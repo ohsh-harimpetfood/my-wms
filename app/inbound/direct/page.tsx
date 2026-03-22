@@ -1,12 +1,11 @@
+// app/inbound/direct/page.tsx
 "use client";
 
 import { createClient } from "@/utils/supabase/client";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect } from "react";
-// 🚀 [수정] Calculator 아이콘 추가
 import { ArrowLeft, Search, Package, Check, Calendar, Hash, Layers, Calculator } from "lucide-react";
 import LocationMapSelector from "@/components/LocationMapSelector"; 
-// 🚀 [추가] 스마트 계산기 컴포넌트 임포트
 import SubMaterialHelperSheet, { PackingDetail } from "@/components/SubMaterialHelperSheet";
 import { TX_TYPES, TxCode, getTxTypesByGroup } from '@/constants/transaction';
 import { useAuth } from "@/context/AuthProvider";
@@ -33,6 +32,8 @@ export default function DirectInboundPage() {
 
   const autoLoc = searchParams.get("loc") || "";
   const autoItem = searchParams.get("item") || "";
+  // 🚀 [해결 1,2] 혼적 입고 시 전달받은 기존 파렛트 ID 추출
+  const autoPallet = searchParams.get("pallet") || "";
 
   // 1. 데이터 상태
   const [items, setItems] = useState<Item[]>([]);
@@ -59,7 +60,6 @@ export default function DirectInboundPage() {
   const [showLocModal, setShowLocModal] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // 🚀 [추가] 스마트 계산기 상태 관리
   const [showHelperSheet, setShowHelperSheet] = useState(false);
   const [packingDetails, setPackingDetails] = useState<PackingDetail[]>([]);
 
@@ -97,7 +97,6 @@ export default function DirectInboundPage() {
     setUnitQty("");
     setSelectedLocs([]);
     setIsMultiMode(false);
-    // 🚀 [추가] 품목이 바뀌면 계산기 데이터 초기화
     setPackingDetails([]);
     
     if (item.item_type === SUB_MATERIAL_TYPE || item.lot_required === 'N') {
@@ -132,7 +131,6 @@ export default function DirectInboundPage() {
 
   const handleQtyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setQty(sanitizeDecimalInput(e.target.value, getMaxDecimal()));
-    // 🚀 [추가] 사용자가 직접 수량을 수정하면 기존 계산기 데이터 무효화
     setPackingDetails([]);
   };
 
@@ -212,22 +210,45 @@ export default function DirectInboundPage() {
           const { data: locInfo, error: locError } = await supabase.from("loc_master").select("loc_id").eq("loc_id", dist.locId).single();
           if (locError || !locInfo) throw new Error(`유효하지 않은 위치 코드입니다: ${dist.locId}`);
 
-          const { data: existInven } = await supabase.from("inventory").select("id, quantity")
+          // 🚀 [해결 1,2 핵심 로직] 컨테이너 여부 확인 및 파렛트 ID 채번
+          const isContainer = dist.locId.startsWith('CT-');
+          let finalPalletId = null;
+
+          if (isContainer) {
+              // 🚨 [버그 픽스] autoPallet이 가짜 아이디('legacy-')면 무시하고 새로 발급합니다!
+              if (autoPallet && !autoPallet.startsWith('legacy-')) {
+                  finalPalletId = autoPallet;
+              } else {
+                  // 빈 공간이나 ID 미지정 파렛트에 입고 -> 고유 ID 자동 생성
+                  const dateStr = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+                  const randomCode = Math.floor(1000 + Math.random() * 9000);
+                  finalPalletId = `PLT-${dateStr}-${randomCode}`;
+              }
+          }
+
+          // 🚀 혼적할 때, 만약 우연히 같은 품목/같은 LOT를 또 넣을 경우를 대비해 pallet_id도 조건에 포함하여 검색
+          let existQuery = supabase.from("inventory").select("id, quantity")
             .eq("location_code", dist.locId)
             .eq("item_key", selectedItem.item_key)
-            .eq("lot_no", lotNo || 'DEFAULT')
-            .maybeSingle();
+            .eq("lot_no", lotNo || 'DEFAULT');
+          
+          if (isContainer && finalPalletId) {
+              existQuery = existQuery.eq("pallet_id", finalPalletId);
+          }
+
+          const { data: existInven } = await existQuery.maybeSingle();
 
           let currentInvenId = existInven?.id;
 
           if (existInven) {
+            // 이미 이 파렛트에 동일한 품목/LOT가 있다면 수량만 더해줌
             await supabase.from("inventory").update({ 
                 quantity: existInven.quantity + dist.qty, 
                 updated_at: nowISO,
                 updated_by: user.id 
             }).eq("id", existInven.id);
           } else {
-            // 🚀 [수정] id 반환받도록 select("id") 추가
+            // 해당 파렛트에 처음 들어가는 품목이라면 새롭게 ROW를 생성
             const { data: newInven } = await supabase.from("inventory").insert({
                 location_code: dist.locId, 
                 item_key: selectedItem.item_key, 
@@ -237,12 +258,12 @@ export default function DirectInboundPage() {
                 exp_date: expDate || null, 
                 inbound_date: nowISO, 
                 updated_at: nowISO,
-                updated_by: user.id 
+                updated_by: user.id,
+                pallet_id: finalPalletId // 🚀 냉동 컨테이너일 때만 값이 들어가고, 일반 랙은 null로 저장됨!
             }).select("id").single();
             if (newInven) currentInvenId = newInven.id;
           }
 
-          // 📦 [추가] 부자재 박스 상세 정보 저장 로직 (단일 모드일 때만 적용)
           if (currentInvenId && packingDetails.length > 0 && !isMultiMode) {
             const packingInserts = packingDetails.map(p => ({
                inventory_id: currentInvenId,
@@ -392,7 +413,6 @@ export default function DirectInboundPage() {
                             {currentMaxDec === 0 ? "정수 입력만 가능" : `소수점 ${currentMaxDec}자리까지 허용`}
                         </span>
                     </div>
-                    {/* 🚀 [추가] 스마트 계산기 버튼 (품목이 선택되었을 때만 노출) */}
                     {selectedItem && (
                         <button 
                             onClick={() => setShowHelperSheet(true)}
@@ -409,7 +429,6 @@ export default function DirectInboundPage() {
                     value={qty}
                     onChange={handleQtyChange}
                 />
-                {/* 🚀 [추가] 계산기 적용 성공 메시지 */}
                 {packingDetails.length > 0 && (
                     <p className="text-xs text-emerald-400 mt-2 text-right">✓ 박스/잔량 상세정보가 적용되었습니다.</p>
                 )}
@@ -561,7 +580,6 @@ export default function DirectInboundPage() {
         />
       )}
 
-      {/* 🚀 [추가] 부자재 스마트 계산기 바텀 시트 연동 (즉시 입고는 계획수량이 없으므로 targetQty=0) */}
       <SubMaterialHelperSheet
         isOpen={showHelperSheet}
         onClose={() => setShowHelperSheet(false)}

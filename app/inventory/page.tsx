@@ -1,3 +1,4 @@
+// app/inventory/page.tsx
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import InventorySearchForm from "@/components/InventorySearchForm";
@@ -150,12 +151,47 @@ export default async function InventoryPage({
 
   let filteredInventory = (rawInventory || []) as InventoryItem[];
 
-  if (team === 'PRODUCTION') {
-    filteredInventory = filteredInventory.filter(i => !i.location_code.startsWith("2F"));
+  // 🚀 [핵심 수정] 팀(Team) 및 구역(Zone) 필터링 로직 완벽 적용
+  if (team === 'CONTAINER') {
+    // 1. 컨테이너 필터 (CT-로 시작하는 것만)
+    filteredInventory = filteredInventory.filter(i => i.location_code.startsWith("CT-"));
+    
+    // 1-1. 특정 컨테이너 번호(1~13)가 선택된 경우
+    if (zonesParam) {
+      const selectedContainerNums = zonesParam.split(",").map(num => num.padStart(2, '0'));
+      filteredInventory = filteredInventory.filter(i => {
+        const parts = i.location_code.split('-');
+        if (parts.length >= 3) {
+          return selectedContainerNums.includes(parts[2]);
+        }
+        return false;
+      });
+    }
+  } else if (team === 'PRODUCTION') {
+    // 2. 생산팀 필터 (2F 제외, CT- 제외)
+    filteredInventory = filteredInventory.filter(i => !i.location_code.startsWith("2F") && !i.location_code.startsWith("CT-"));
+    
+    // 2-1. 특정 생산 랙이 선택된 경우
+    if (zonesParam) {
+      const selectedRacks = zonesParam.split(",");
+      filteredInventory = filteredInventory.filter(i => 
+        selectedRacks.some(rack => i.location_code.startsWith(rack))
+      );
+    }
   } else if (team === 'LOGISTICS') {
+    // 3. 물류팀 필터 (2F-로 시작)
     filteredInventory = filteredInventory.filter(i => i.location_code.startsWith("2F"));
+    
+    // 3-1. 특정 물류 구역이 선택된 경우
+    if (zonesParam) {
+      const selectedLogisticsZones = zonesParam.split(",");
+      filteredInventory = filteredInventory.filter(i => 
+        selectedLogisticsZones.some(zone => i.location_code.includes(zone))
+      );
+    }
   }
 
+  // 🚀 검색어(Query) 필터링 (기존 유지)
   if (query) {
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
     filteredInventory = filteredInventory.filter(item => {
@@ -173,19 +209,24 @@ export default async function InventoryPage({
   const totalCount = filteredInventory.length;
   const startIdx = (page - 1) * ITEMS_PER_PAGE;
   const endIdx = startIdx + ITEMS_PER_PAGE;
-  const paginatedInventory = filteredInventory.slice(startIdx, endIdx);
+  const paginatedInventory = filteredInventory.slice(startIdx, endIdx); // 화면용 20건
 
   const getConditionText = () => {
     if (query) return `검색어: "${query}"`;
-    if (zonesParam) return `구역: [${zonesParam.replaceAll(',', ', ')}]`;
-    if (team === 'PRODUCTION') return '[생산팀 관할 구역]';
-    if (team === 'LOGISTICS') return '[물류팀 관할 구역]';
+    if (zonesParam) {
+      if (team === 'CONTAINER') return `컨테이너: [${zonesParam.replaceAll(',', ', ')}호]`;
+      return `구역: [${zonesParam.replaceAll(',', ', ')}]`;
+    }
+    if (team === 'PRODUCTION') return '[생산팀 전체]';
+    if (team === 'LOGISTICS') return '[물류팀 전체]';
+    if (team === 'CONTAINER') return '[컨테이너 전체]';
     return '[전체 재고]';
   };
 
   return (
     <InventoryListClient 
         initialInventory={paginatedInventory}
+        fullInventory={filteredInventory} /* 🚀 핵심 추가: 인쇄 및 엑셀용 전체 데이터 전달! */
         totalCount={totalCount}
         conditionText={getConditionText()}
         serverQuery={query}

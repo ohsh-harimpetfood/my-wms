@@ -58,9 +58,11 @@ async function fetchAllData(
 export const getAllLocations = async (supabase: SupabaseClient) => {
   // 🚨 [핵심 수정] 랙 정보를 그리기 위해 모든 컬럼(*)과 재고 정보를 가져옵니다.
   // 🚀 inventory_packing_info를 추가하여 박스 및 잔량 상세 정보를 함께 불러옵니다!
+  // 🚀 [수정됨] pallet_id를 추가하여 프론트엔드에서 파렛트 LPN을 정상적으로 인식하도록 했습니다.
   const selectQuery = `
     *,
     inventory (
+      pallet_id,
       quantity,
       item_master ( item_name, item_type, uom ),
       inventory_packing_info ( pack_type, unit_qty, pack_count, total_qty )
