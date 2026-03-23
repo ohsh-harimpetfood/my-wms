@@ -134,6 +134,7 @@ export default async function InventoryPage({
   const ITEMS_PER_PAGE = 20; 
 
   // 🚀 [쿼리 조인 추가] inventory_packing_info를 가져오도록 수정
+  // 여기서의 order는 1차적인 DB 정렬일 뿐, 아래에서 다시 재정렬합니다.
   let dbQuery = supabase
     .from("inventory") 
     .select(`
@@ -205,6 +206,36 @@ export default async function InventoryPage({
       return terms.every(term => targetText.includes(term));
     });
   }
+
+  // =========================================================
+  // 🚨 [긴급 핫픽스] 현업 요구사항: 랙 -> 열 -> '사이드' -> '레벨' 순 정렬
+  // =========================================================
+  filteredInventory.sort((a, b) => {
+      const locA = a.location_code || "";
+      const locB = b.location_code || "";
+
+      // OA11 같은 4자리 영문/숫자 조합 포맷인지 정규식으로 확인 (대소문자 무관)
+      const regex = /^([a-zA-Z])([a-zA-Z])(\d)(\d)$/;
+      const matchA = locA.match(regex);
+      const matchB = locB.match(regex);
+
+      if (matchA && matchB) {
+          const rackA = matchA[1], colA = matchA[2], lvlA = matchA[3], sideA = matchA[4];
+          const rackB = matchB[1], colB = matchB[2], lvlB = matchB[3], sideB = matchB[4];
+
+          if (rackA !== rackB) return rackA.localeCompare(rackB); // 1순위: 랙 (O)
+          if (colA !== colB) return colA.localeCompare(colB);     // 2순위: 열 (A, B)
+          
+          // 🔥 여기가 핵심입니다! 레벨(lvl)보다 사이드(side)를 먼저 비교합니다.
+          if (sideA !== sideB) return sideA.localeCompare(sideB); // 3순위: 사이드 (1 -> 2)
+          
+          if (lvlA !== lvlB) return lvlA.localeCompare(lvlB);     // 4순위: 레벨 (1, 2, 3)
+      }
+
+      // OA11 형태가 아닌 다른 구역(가상 로케이션, M-01-01 등)은 기존 알파벳 정렬 유지
+      return locA.localeCompare(locB);
+  });
+  // =========================================================
 
   const totalCount = filteredInventory.length;
   const startIdx = (page - 1) * ITEMS_PER_PAGE;

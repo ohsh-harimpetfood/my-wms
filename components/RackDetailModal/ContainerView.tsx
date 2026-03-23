@@ -108,12 +108,14 @@ export function ContainerView({ containerName, locations, onInventoryClick, onEm
                 <div className="text-xs text-slate-500 bg-slate-800/50 px-2 py-1 rounded w-fit">좌측(문) ➔ 우측(안쪽) 적재</div>
             </div>
 
-            <div className="relative w-full bg-slate-900/80 border-[6px] border-slate-600 rounded-lg p-2 flex flex-col shadow-inner overflow-hidden">
+            {/* 🚀 수정 포인트: overflow-hidden 제거 (툴팁이 밖으로 나갈 수 있게 허용) */}
+            <div className="relative w-full bg-slate-900/80 border-[6px] border-slate-600 rounded-lg p-2 flex flex-col shadow-inner">
                 <div className="absolute left-0 top-2 bottom-2 w-3 border-r-2 border-dashed border-slate-500/50 bg-slate-700 flex items-center justify-center z-30 rounded-r">
                     <div className="h-1/3 w-1 bg-slate-500 rounded-full"></div>
                 </div>
 
-                <div className="w-full h-64 md:h-80 overflow-x-auto custom-scrollbar overflow-y-visible pb-2 pt-1 pl-4">
+                {/* 🚀 수정 포인트: 세로 높이를 대폭 확장 (h-64 -> h-[380px], md:h-80 -> md:h-[480px]) */}
+                <div className="w-full h-[380px] md:h-[480px] overflow-x-auto custom-scrollbar overflow-y-visible pb-2 pt-1 pl-4">
                     <div className="flex h-full gap-2 relative z-20" style={{ minWidth: maxCapa > 10 ? '600px' : '100%' }}>
                         
                         {currentPallets > 0 && (

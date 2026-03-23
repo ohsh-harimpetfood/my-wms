@@ -54,14 +54,25 @@ function LocationContent() {
           );
           setOccupiedLocs(occupied);
 
-          if (initialZoneParam === '2F') {
+          // 🚀 [추가] URL 파라미터 읽기 (zone과 open 랙 지정)
+          const zoneParam = searchParams.get("zone");
+          const openParam = searchParams.get("open");
+
+          if (zoneParam === '2F') {
               setActiveZone('2F');
-          } else if (initialZoneParam === 'FREEZER') {
+              if (openParam) setSelectedRack2F(openParam); // 🚀 2F 구역의 랙 팝업 열기
+          } else if (zoneParam === 'FREEZER') {
               setActiveZone('FREEZER');
-          } else if (initialZoneParam) {
-              setActiveZone('M');
-              const exists = typedData.some(l => l.zone === initialZoneParam);
-              if (exists) setSelectedMapLoc(initialZoneParam);
+              if (openParam) setSelectedMapLoc(openParam); // 🚀 냉동 컨테이너 팝업 열기
+          } else {
+              setActiveZone('M'); // 기본은 생산팀(M) 구역
+              
+              if (openParam) {
+                  setSelectedMapLoc(openParam); // 🚀 지정된 랙 팝업 열기
+              } else if (zoneParam && typedData.some(l => l.zone === zoneParam)) {
+                  // 기존 하위 호환성 (zone 파라미터 자체가 랙 이름일 경우)
+                  setSelectedMapLoc(zoneParam);
+              }
           }
         }
       } catch (error) {
@@ -73,7 +84,7 @@ function LocationContent() {
     };
 
     fetchData();
-  }, [initialZoneParam, toast, supabase]); 
+  }, [searchParams, toast, supabase]); // 🚀 의존성에 searchParams 추가
 
   const getRackStats = (rackName: string): RackStats => {
     const rackLocs = locations.filter(l => l.zone === '2F' && l.rack_no === rackName);
