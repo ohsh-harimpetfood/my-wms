@@ -35,7 +35,6 @@ export interface InventoryItem {
     uom: string;
     item_type?: string;
   } | null;
-  // 🚀 [추가] 박스 상세 정보 배열 추가
   inventory_packing_info?: PackingInfo[]; 
 }
 
@@ -51,12 +50,9 @@ export default async function InventoryPage({
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) redirect("/login");
 
-  // 📸 QR 스캔 모드 감지 (URL 파라미터 location)
+  // 📸 QR 스캔 모드 감지
   const qrLocation = params.location ? String(params.location) : null;
 
-  // =========================================================
-  // [모드 1] QR 스캔 결과 처리
-  // =========================================================
   if (qrLocation) {
     const { count, error } = await supabase
         .from("inventory") 
@@ -111,18 +107,12 @@ export default async function InventoryPage({
     );
   }
 
-  // =========================================================
-  // [모드 2] 일반 재고 조회 모드
-  // =========================================================
-
   if (params.search !== "true") {
     const [locations, items] = await Promise.all([
       getAllLocations(supabase),
       getAllItems(supabase)
     ]);
     const zones = extractUniqueZones(locations);
-    
-    // 🚀 [타입 에러 해결] Partial<Item> 배열을 받거나 강제 우회 (여기서는 as Item[] 이 아닌 unknown을 거침)
     return <InventorySearchForm zones={zones} items={items as unknown as Item[]} />;
   }
 
@@ -133,8 +123,6 @@ export default async function InventoryPage({
   const zonesParam = params.zones ? String(params.zones) : ""; 
   const ITEMS_PER_PAGE = 20; 
 
-  // 🚀 [쿼리 조인 추가] inventory_packing_info를 가져오도록 수정
-  // 여기서의 order는 1차적인 DB 정렬일 뿐, 아래에서 다시 재정렬합니다.
   let dbQuery = supabase
     .from("inventory") 
     .select(`
@@ -152,47 +140,30 @@ export default async function InventoryPage({
 
   let filteredInventory = (rawInventory || []) as InventoryItem[];
 
-  // 🚀 [핵심 수정] 팀(Team) 및 구역(Zone) 필터링 로직 완벽 적용
   if (team === 'CONTAINER') {
-    // 1. 컨테이너 필터 (CT-로 시작하는 것만)
     filteredInventory = filteredInventory.filter(i => i.location_code.startsWith("CT-"));
-    
-    // 1-1. 특정 컨테이너 번호(1~13)가 선택된 경우
     if (zonesParam) {
       const selectedContainerNums = zonesParam.split(",").map(num => num.padStart(2, '0'));
       filteredInventory = filteredInventory.filter(i => {
         const parts = i.location_code.split('-');
-        if (parts.length >= 3) {
-          return selectedContainerNums.includes(parts[2]);
-        }
+        if (parts.length >= 3) return selectedContainerNums.includes(parts[2]);
         return false;
       });
     }
   } else if (team === 'PRODUCTION') {
-    // 2. 생산팀 필터 (2F 제외, CT- 제외)
     filteredInventory = filteredInventory.filter(i => !i.location_code.startsWith("2F") && !i.location_code.startsWith("CT-"));
-    
-    // 2-1. 특정 생산 랙이 선택된 경우
     if (zonesParam) {
       const selectedRacks = zonesParam.split(",");
-      filteredInventory = filteredInventory.filter(i => 
-        selectedRacks.some(rack => i.location_code.startsWith(rack))
-      );
+      filteredInventory = filteredInventory.filter(i => selectedRacks.some(rack => i.location_code.startsWith(rack)));
     }
   } else if (team === 'LOGISTICS') {
-    // 3. 물류팀 필터 (2F-로 시작)
     filteredInventory = filteredInventory.filter(i => i.location_code.startsWith("2F"));
-    
-    // 3-1. 특정 물류 구역이 선택된 경우
     if (zonesParam) {
       const selectedLogisticsZones = zonesParam.split(",");
-      filteredInventory = filteredInventory.filter(i => 
-        selectedLogisticsZones.some(zone => i.location_code.includes(zone))
-      );
+      filteredInventory = filteredInventory.filter(i => selectedLogisticsZones.some(zone => i.location_code.includes(zone)));
     }
   }
 
-  // 🚀 검색어(Query) 필터링 (기존 유지)
   if (query) {
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
     filteredInventory = filteredInventory.filter(item => {
@@ -208,13 +179,13 @@ export default async function InventoryPage({
   }
 
   // =========================================================
-  // 🚨 [긴급 핫픽스] 현업 요구사항: 랙 -> 열 -> '사이드' -> '레벨' 순 정렬
+  // 🚨 [긴급 핫픽스 2차] 현업 요구사항: 랙 -> '사이드' -> 열 -> 레벨 순 정렬
   // =========================================================
   filteredInventory.sort((a, b) => {
       const locA = a.location_code || "";
       const locB = b.location_code || "";
 
-      // OA11 같은 4자리 영문/숫자 조합 포맷인지 정규식으로 확인 (대소문자 무관)
+      // OA11 같은 4자리 영문/숫자 조합 포맷인지 정규식으로 확인
       const regex = /^([a-zA-Z])([a-zA-Z])(\d)(\d)$/;
       const matchA = locA.match(regex);
       const matchB = locB.match(regex);
@@ -224,12 +195,12 @@ export default async function InventoryPage({
           const rackB = matchB[1], colB = matchB[2], lvlB = matchB[3], sideB = matchB[4];
 
           if (rackA !== rackB) return rackA.localeCompare(rackB); // 1순위: 랙 (O)
-          if (colA !== colB) return colA.localeCompare(colB);     // 2순위: 열 (A, B)
           
-          // 🔥 여기가 핵심입니다! 레벨(lvl)보다 사이드(side)를 먼저 비교합니다.
-          if (sideA !== sideB) return sideA.localeCompare(sideB); // 3순위: 사이드 (1 -> 2)
+          // 🔥 [수정됨] 열보다 사이드(Side)를 먼저 비교하여 Side 1 전체 ➔ Side 2 전체 순으로 정렬합니다.
+          if (sideA !== sideB) return sideA.localeCompare(sideB); // 2순위: 사이드 (1 -> 2)
           
-          if (lvlA !== lvlB) return lvlA.localeCompare(lvlB);     // 4순위: 레벨 (1, 2, 3)
+          if (colA !== colB) return colA.localeCompare(colB);     // 3순위: 열 (A, B, C...)
+          if (lvlA !== lvlB) return lvlA.localeCompare(lvlB);     // 4순위: 레벨 (1, 2, 3, 4...)
       }
 
       // OA11 형태가 아닌 다른 구역(가상 로케이션, M-01-01 등)은 기존 알파벳 정렬 유지
@@ -257,7 +228,7 @@ export default async function InventoryPage({
   return (
     <InventoryListClient 
         initialInventory={paginatedInventory}
-        fullInventory={filteredInventory} /* 🚀 핵심 추가: 인쇄 및 엑셀용 전체 데이터 전달! */
+        fullInventory={filteredInventory}
         totalCount={totalCount}
         conditionText={getConditionText()}
         serverQuery={query}
