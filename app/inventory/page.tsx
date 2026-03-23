@@ -179,31 +179,67 @@ export default async function InventoryPage({
   }
 
   // =========================================================
-  // 🚨 [긴급 핫픽스 2차] 현업 요구사항: 랙 -> '사이드' -> 열 -> 레벨 순 정렬
+  // 🚨 [긴급 핫픽스 3차 수정] TS 에러 방지용 안전한 하이브리드 정렬
   // =========================================================
   filteredInventory.sort((a, b) => {
       const locA = a.location_code || "";
       const locB = b.location_code || "";
 
-      // OA11 같은 4자리 영문/숫자 조합 포맷인지 정규식으로 확인
-      const regex = /^([a-zA-Z])([a-zA-Z])(\d)(\d)$/;
-      const matchA = locA.match(regex);
-      const matchB = locB.match(regex);
+      // 파싱 헬퍼 함수
+      const parseLoc = (loc: string) => {
+          const shuttleMatch = loc.match(/^([LJlj])([a-zA-Z])(\d)(\d{1,2})$/);
+          if (shuttleMatch) {
+              return {
+                  type: 'SHUTTLE',
+                  rack: shuttleMatch[1].toUpperCase(),
+                  col: shuttleMatch[2].toUpperCase(),
+                  lvl: parseInt(shuttleMatch[3], 10),
+                  side: parseInt(shuttleMatch[4], 10)
+              };
+          }
 
-      if (matchA && matchB) {
-          const rackA = matchA[1], colA = matchA[2], lvlA = matchA[3], sideA = matchA[4];
-          const rackB = matchB[1], colB = matchB[2], lvlB = matchB[3], sideB = matchB[4];
+          const stdMatch = loc.match(/^([a-zA-Z])([a-zA-Z])(\d)(\d)$/);
+          if (stdMatch) {
+              return {
+                  type: 'STANDARD',
+                  rack: stdMatch[1].toUpperCase(),
+                  col: stdMatch[2].toUpperCase(),
+                  lvl: parseInt(stdMatch[3], 10),
+                  side: parseInt(stdMatch[4], 10)
+              };
+          }
 
-          if (rackA !== rackB) return rackA.localeCompare(rackB); // 1순위: 랙 (O)
-          
-          // 🔥 [수정됨] 열보다 사이드(Side)를 먼저 비교하여 Side 1 전체 ➔ Side 2 전체 순으로 정렬합니다.
-          if (sideA !== sideB) return sideA.localeCompare(sideB); // 2순위: 사이드 (1 -> 2)
-          
-          if (colA !== colB) return colA.localeCompare(colB);     // 3순위: 열 (A, B, C...)
-          if (lvlA !== lvlB) return lvlA.localeCompare(lvlB);     // 4순위: 레벨 (1, 2, 3, 4...)
+          return { type: 'OTHER', raw: loc };
+      };
+
+      const parsedA = parseLoc(locA);
+      const parsedB = parseLoc(locB);
+
+      // 타입이 다르면 그냥 기본 문자열 정렬
+      if (parsedA.type !== parsedB.type) {
+          return locA.localeCompare(locB);
       }
 
-      // OA11 형태가 아닌 다른 구역(가상 로케이션, M-01-01 등)은 기존 알파벳 정렬 유지
+      // 🔥 1. 셔틀랙 정렬 (TS 에러 방지를 위해 속성 존재 여부 한 번 더 검증)
+      if (parsedA.type === 'SHUTTLE' && parsedB.type === 'SHUTTLE') {
+          // Non-null assertion (!) 사용
+          if (parsedA.rack! !== parsedB.rack!) return parsedA.rack!.localeCompare(parsedB.rack!);
+          if (parsedA.col! !== parsedB.col!) return parsedA.col!.localeCompare(parsedB.col!); 
+          if (parsedA.lvl! !== parsedB.lvl!) return parsedA.lvl! - parsedB.lvl!; 
+          if (parsedA.side! !== parsedB.side!) return parsedA.side! - parsedB.side!; 
+          return 0;
+      }
+
+      // 🔥 2. 일반랙 정렬
+      if (parsedA.type === 'STANDARD' && parsedB.type === 'STANDARD') {
+          if (parsedA.rack! !== parsedB.rack!) return parsedA.rack!.localeCompare(parsedB.rack!);
+          if (parsedA.side! !== parsedB.side!) return parsedA.side! - parsedB.side!; 
+          if (parsedA.col! !== parsedB.col!) return parsedA.col!.localeCompare(parsedB.col!); 
+          if (parsedA.lvl! !== parsedB.lvl!) return parsedA.lvl! - parsedB.lvl!; 
+          return 0;
+      }
+
+      // 3. 기타 구역
       return locA.localeCompare(locB);
   });
   // =========================================================
