@@ -350,10 +350,26 @@ function ZoneViewM({ locations, onRackClick }: { locations: LocationData[], onRa
 
     const renderVirtualStaging = (className: string = "") => {
         const stagingLocs = locations.filter(l => l.loc_id.startsWith('VIR-STG'));
-        const totalPallets = stagingLocs.reduce((sum, l) => {
-            const qty = l.inventory && l.inventory.length > 0 ? l.inventory.reduce((qSum, inv) => qSum + inv.quantity, 0) : 0;
-            return sum + qty;
-        }, 0);
+        
+        // 🚀 [긴급 수정] 수량(kg) 합산이 아닌 '고유 파렛트 개수' 산정 로직으로 교체
+        const palletSet = new Set<string>();
+        let legacyCount = 0;
+
+        stagingLocs.forEach(loc => {
+            if (loc.inventory && loc.inventory.length > 0) {
+                loc.inventory.forEach(inv => {
+                    if (inv.quantity > 0) {
+                        if (inv.pallet_id) {
+                            palletSet.add(inv.pallet_id); // 고유 LPN 파렛트는 중복 제거
+                        } else {
+                            legacyCount++; // LPN이 없는 구재고는 각각을 1파렛트로 간주
+                        }
+                    }
+                });
+            }
+        });
+
+        const totalPallets = palletSet.size + legacyCount;
         const hasStock = totalPallets > 0;
 
         return (
@@ -375,7 +391,7 @@ function ZoneViewM({ locations, onRackClick }: { locations: LocationData[], onRa
                 <div className="md:hidden flex flex-col items-center justify-center w-full h-full gap-1">
                     <span className="text-[10px] font-bold opacity-80">대기장</span>
                     <span className={`text-2xl font-black font-mono leading-none tracking-tighter ${hasStock ? 'text-amber-400' : 'text-slate-600'}`}>
-                        {totalPallets}
+                        {totalPallets.toLocaleString()}
                     </span>
                 </div>
 
