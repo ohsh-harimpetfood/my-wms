@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { 
   LayoutDashboard, Database, Package, Truck, LogOut, History, 
   ChevronDown, Map, List, Box, LayoutGrid, Power, User, LogIn, Loader2, Settings,
-  Printer // 🚀 [추가] 프린터 아이콘 임포트
+  Printer 
 } from "lucide-react";
 import { useAuth } from "@/context/AuthProvider"; 
 import { useUI } from "@/context/UIProvider"; 
@@ -22,8 +22,11 @@ export default function Header() {
   const [showRebootModal, setShowRebootModal] = useState(false);
   const [isRebooting, setIsRebooting] = useState(false);
 
+  // 🚀 [수정 POINT] 역할에 따른 권한 변수 세분화
   const isAdmin = !loading && profile?.role === 'ADMIN';
   const isGuest = !loading && profile?.role === 'GUEST';
+  // MANAGER 이상만 기준정보에 접근 가능하도록 설정
+  const canManageMasterData = !loading && (profile?.role === 'ADMIN' || profile?.role === 'MANAGER');
 
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
 
@@ -55,7 +58,6 @@ export default function Header() {
       {isRebooting && <LoadingScreen mode="reboot" />}
 
       <nav className="border-b border-gray-800 bg-black/50 backdrop-blur-md sticky top-0 z-50 no-print">
-        {/* 🚀 [팁] nav 태그에 no-print 클래스를 추가하면 어제처럼 인쇄될 때 딸려 들어가는 걸 한 번 더 방지합니다! */}
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           
           <div className="flex items-center gap-8">
@@ -107,15 +109,14 @@ export default function Header() {
                   )}
                 </div>
 
-                {/* 기준정보: ADMIN 전용 */}
-                {isAdmin && (
+                {/* 🚀 [수정 POINT] 기준정보: ADMIN 또는 MANAGER만 접근 가능 */}
+                {canManageMasterData && (
                   <div className="relative group">
-                    {/* 🚀 [수정] isActive 부분에 /print 경로 추가 (인쇄 화면일 때 기준정보 버튼 불 들어오게) */}
                     <button className={`flex items-center gap-2 px-3 py-2 rounded-md transition-colors ${isActive("/items") || isActive("/location/master") || isActive("/print") ? "bg-gray-800 text-white" : "group-hover:text-white group-hover:bg-gray-800/50"}`}>
                       <Database size={16} /> 기준정보
                       <ChevronDown size={12} className="group-hover:rotate-180 transition-transform duration-200" />
                     </button>
-                    <div className="absolute left-0 top-full pt-2 w-48 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 transform translate-y-2 group-hover:translate-y-0">
+                    <div className="absolute left-0 top-full pt-2 w-48 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 transform translate-y-2 group-hover:translate-y-0 z-50">
                       <div className="bg-gray-900 border border-gray-700 rounded-lg shadow-xl p-1">
                         <Link href="/items" className="flex items-center gap-2 px-3 py-2.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-white rounded-md">
                           <Box size={16} className="text-yellow-500"/> 품목 관리
@@ -123,7 +124,6 @@ export default function Header() {
                         <Link href="/location/master" className="flex items-center gap-2 px-3 py-2.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-white rounded-md">
                           <LayoutGrid size={16} className="text-blue-500"/> 로케이션 관리
                         </Link>
-                        {/* 🚀 [추가] 랙 카드 인쇄 버튼 추가 */}
                         <Link href="/print/rack-cards" className={`flex items-center gap-2 px-3 py-2.5 text-sm rounded-md ${isActive("/print/rack-cards") ? "bg-gray-800 text-white" : "text-gray-300 hover:bg-gray-800 hover:text-white"}`}>
                           <Printer size={16} className="text-pink-500"/> 랙 카드 인쇄
                         </Link>
@@ -147,7 +147,7 @@ export default function Header() {
           </div>
 
           <div className="flex items-center gap-4">
-            {/* 관리자 설정 아이콘 */}
+            {/* 관리자 설정 아이콘 (시스템 관리용: 오직 ADMIN만 표시) */}
             {!loading && user && isAdmin && (
               <Link href="/admin/users" className="p-2 text-gray-400 hover:text-blue-400 hover:bg-gray-800 rounded-full transition" title="시스템 관리">
                 <Settings size={20} />
