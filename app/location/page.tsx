@@ -219,7 +219,7 @@ function ZoneViewFreezer({ locations, onLocClick }: { locations: LocationData[],
         "1번": "CT-LOG-01-20", "2번": "CT-P1-02-20", "3번": "CT-P1-03-40",
         "4번": "CT-P1-04-40", "5번": "CT-P1-05-40", "6번": "CT-P2-06-40",
         "7번": "CT-P2-07-40", "8번": "CT-P2-08-40", "9번": "CT-P2-09-40",
-        "10번": "CT-LOG-10-40", "11번": "CT-LOG-11-20", "12번": "CT-LOG-12-20", "13번": "CT-P1-13-20"
+        "10번": "CT-LOG-10-40", "11번": "CT-LOG-11-20", "12번": "CT-LOG-12-20", "13번": "CT-P1-13-40"
     };
 
     const getContStats = (fullLocCode: string) => {
