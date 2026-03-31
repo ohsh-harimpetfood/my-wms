@@ -1,8 +1,13 @@
 import { createClient } from "@/utils/supabase/server";
 import PaginationControls from "@/components/PaginationControls";
 import SearchInput from "@/components/SearchInput";
+// 🚀 [경로 수정 완료] components/items/ 폴더의 컴포넌트들 임포트
+import DownloadTemplateButton from "@/components/items/DownloadTemplateButton"; 
+import UploadTemplateButton from "@/components/items/UploadTemplateButton"; 
+import ApprovalQueueButton from "@/components/items/ApprovalQueueButton"; 
+import ItemStatusToggleButton from "@/components/items/ItemStatusToggleButton"; 
+import ItemTeamSelect from "@/components/items/ItemTeamSelect"; // 🚀 [추가] 팀 선택 컴포넌트
 
-// ✨ [핵심 1] 캐싱 방지: 검색 파라미터에 따라 데이터가 바뀌어야 하므로 동적 렌더링 필수
 export const dynamic = 'force-dynamic';
 
 interface Item {
@@ -17,13 +22,11 @@ interface Item {
   created_at: string;
 }
 
-// 날짜 포맷팅 헬퍼
 const formatDate = (dateString: string | null) => {
   if (!dateString) return '-';
   return new Date(dateString).toLocaleDateString("ko-KR");
 };
 
-// 금액 포맷팅 헬퍼
 const formatMoney = (amount: number | null) => {
   return amount?.toLocaleString() || '0';
 };
@@ -36,7 +39,6 @@ export default async function ItemsPage({
   const supabase = await createClient();
   const params = await searchParams;
 
-  // 페이지 및 검색어 파싱
   const page = params.page ? Number(params.page) : 1;
   const rawQuery = params.query ? String(params.query) : "";
   const query = decodeURIComponent(rawQuery).trim();
@@ -45,23 +47,18 @@ export default async function ItemsPage({
   const start = (page - 1) * ITEMS_PER_PAGE;
   const end = start + ITEMS_PER_PAGE - 1;
 
-  // 1. 기본 쿼리 작성
   let dbQuery = supabase
     .from('item_master')
     .select('*', { count: 'exact' })
     .order('item_key', { ascending: true })
     .range(start, end);
 
-  // 2. 검색 조건 적용 (대소문자 무시 ilike 사용)
-  // item_name 또는 item_key에 검색어가 포함되면 조회
   if (query) {
     dbQuery = dbQuery.or(`item_name.ilike.%${query}%,item_key.ilike.%${query}%`);
   }
 
-  // 3. 데이터 실행
   const { data, count, error } = await dbQuery;
 
-  // 에러 처리
   if (error) {
     console.error("품목 조회 실패:", error);
     return (
@@ -78,13 +75,17 @@ export default async function ItemsPage({
   return (
     <div className="p-8 space-y-6 bg-black min-h-screen font-[family-name:var(--font-geist-sans)] text-white animate-fade-in">
       
-      {/* 헤더 및 검색창 */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <h1 className="text-2xl font-bold text-white">📦 품목 마스터 (Item Master)</h1>
-        <SearchInput />
+        
+        <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+          <SearchInput />
+          <ApprovalQueueButton />
+          <DownloadTemplateButton /> 
+          <UploadTemplateButton /> 
+        </div>
       </div>
 
-      {/* 테이블 영역 */}
       <div className="border border-gray-800 rounded-lg overflow-hidden bg-gray-900 shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left text-gray-400">
@@ -97,11 +98,12 @@ export default async function ItemsPage({
                 <th className="px-6 py-4 text-center">단위</th>
                 <th className="px-6 py-4 text-center">LOT</th>
                 <th className="px-6 py-4">비고</th>
+                <th className="px-6 py-4 text-center">관리</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800">
               {items.map((item) => (
-                <tr key={item.item_key} className="bg-gray-900 hover:bg-gray-800 transition-colors">
+                <tr key={item.item_key} className={`bg-gray-900 hover:bg-gray-800 transition-colors ${item.active_flag === 'N' ? 'opacity-50' : ''}`}>
                   <td className="px-6 py-4 font-medium text-blue-400 whitespace-nowrap font-mono">
                     {item.item_key}
                   </td>
@@ -111,9 +113,13 @@ export default async function ItemsPage({
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex flex-col gap-1.5 items-start">
-                      <span className="text-xs bg-gray-800 text-gray-300 px-2 py-0.5 rounded border border-gray-700">
-                        {item.use_team}
-                      </span>
+                      
+                      {/* 🚀 [추가] 고정된 텍스트 뱃지 대신, 수정 가능한 팀 선택 드롭다운 렌더링 */}
+                      <ItemTeamSelect 
+                        itemKey={item.item_key} 
+                        currentTeam={item.use_team} 
+                      />
+
                       {item.active_flag === 'Y' ? (
                         <span className="text-xs bg-green-900/30 text-green-400 px-2 py-0.5 rounded border border-green-800">
                           사용중
@@ -141,11 +147,18 @@ export default async function ItemsPage({
                   <td className="px-6 py-4 text-gray-500 max-w-xs truncate" title={item.remark}>
                     {item.remark || '-'}
                   </td>
+                  <td className="px-6 py-4 text-center">
+                    <ItemStatusToggleButton 
+                      itemKey={item.item_key} 
+                      itemName={item.item_name} 
+                      currentFlag={item.active_flag} 
+                    />
+                  </td>
                 </tr>
               ))}
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
                     <p className="text-lg mb-1">데이터가 없습니다.</p>
                     {query && <p className="text-sm">"{query}" 검색 결과가 없습니다.</p>}
                   </td>
@@ -156,7 +169,6 @@ export default async function ItemsPage({
         </div>
       </div>
 
-      {/* 페이지네이션 컨트롤 */}
       <PaginationControls 
         totalCount={totalCount}
         pageSize={ITEMS_PER_PAGE}
