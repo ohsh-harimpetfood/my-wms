@@ -3,8 +3,8 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Filter, Search, X, Map, Settings2, Printer, Download } from "lucide-react";
-import { ArrowRightLeft, LogOut, MapPin, Box, Package, Hash } from "lucide-react"; 
+// 🚀 [수정] Map 아이콘을 MapIcon으로 별칭 부여, ArrowRight 추가
+import { ArrowLeft, Filter, Search, X, Map as MapIcon, Settings2, Printer, Download, MapPin, Box, Package, Hash, ArrowRightLeft, LogOut, Check, ArrowRight } from "lucide-react";
 import PaginationControls from "@/components/PaginationControls";
 import InventoryAdjustmentModal from "@/components/InventoryAdjustmentModal";
 import { useAuth } from "@/context/AuthProvider";
@@ -34,8 +34,8 @@ export interface InventoryItem {
 }
 
 interface Props {
-  initialInventory: InventoryItem[]; // 화면용 (페이지네이션 적용됨, 20건)
-  fullInventory?: InventoryItem[];    // 🚀 인쇄 및 엑셀용 전체 데이터 (45건 전부)
+  initialInventory: InventoryItem[]; 
+  fullInventory?: InventoryItem[];    
   totalCount: number;
   conditionText: string;
   serverQuery: string;
@@ -45,7 +45,7 @@ interface Props {
 
 export default function InventoryListClient({
   initialInventory,
-  fullInventory = [], // fallback 빈 배열
+  fullInventory = [], 
   totalCount: serverTotalCount,
   conditionText,
   serverQuery,
@@ -67,6 +67,9 @@ export default function InventoryListClient({
   const [isAdjModalOpen, setIsAdjModalOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
 
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [printMode, setPrintMode] = useState<"LOCATION" | "ITEM_GROUP">("LOCATION");
+
   const handleOpenAdjustment = (item: InventoryItem) => {
     if (!canAdjust) return;
     setSelectedItem(item);
@@ -77,7 +80,6 @@ export default function InventoryListClient({
     router.refresh();
   };
 
-  // 1. 화면에 보여줄 20건짜리 리스트 (검색어 필터 적용)
   const filteredList = useMemo(() => {
     if (!localQuery.trim()) return initialInventory;
     const lowerQuery = localQuery.toLowerCase();
@@ -87,7 +89,6 @@ export default function InventoryListClient({
     });
   }, [initialInventory, localQuery]);
 
-  // 🚀 2. 인쇄/엑셀용 전체 리스트 (검색어 필터 적용)
   const filteredFullList = useMemo(() => {
     const sourceData = fullInventory.length > 0 ? fullInventory : initialInventory;
     if (!localQuery.trim()) return sourceData;
@@ -111,7 +112,6 @@ export default function InventoryListClient({
     return zone ? `/location?zone=${zone}` : '/location';
   };
 
-  // 🚀 엑셀 다운로드는 전체 리스트(filteredFullList) 기준!
   const handleExportExcel = () => {
     const headers = ["위치", "품목코드", "품목명", "LOT", "유통기한", "수량", "단위", "상태"];
     
@@ -144,8 +144,45 @@ export default function InventoryListClient({
   };
 
   const handlePrint = () => {
-    window.print();
+    setIsPrintModalOpen(false);
+    setTimeout(() => {
+        window.print();
+    }, 100);
   };
+
+  const groupedByItemList = useMemo(() => {
+      if (printMode !== "ITEM_GROUP") return [];
+      
+      const itemMap = new Map<string, {
+          item_key: string;
+          item_name: string;
+          uom: string;
+          total_qty: number;
+          locations: { code: string, qty: number, lot: string }[]
+      }>();
+
+      filteredFullList.forEach(item => {
+          if (!itemMap.has(item.item_key)) {
+              itemMap.set(item.item_key, {
+                  item_key: item.item_key,
+                  item_name: item.item_master?.item_name || "알 수 없음",
+                  uom: item.item_master?.uom || "EA",
+                  total_qty: 0,
+                  locations: []
+              });
+          }
+          const group = itemMap.get(item.item_key)!;
+          group.total_qty += item.quantity;
+          group.locations.push({
+              code: item.location_code,
+              qty: item.quantity,
+              lot: item.lot_no === 'DEFAULT' ? 'N/A' : item.lot_no
+          });
+      });
+
+      return Array.from(itemMap.values()).sort((a, b) => a.item_name.localeCompare(b.item_name));
+  }, [filteredFullList, printMode]);
+
 
   return (
     <>
@@ -158,7 +195,6 @@ export default function InventoryListClient({
 
       <div className="p-4 md:p-8 space-y-6 bg-black min-h-screen text-white animate-fade-in pb-20 print:bg-white print:text-black print:p-0">
         
-        {/* 헤더 영역 (인쇄 시 숨김) */}
         <div className="border-b border-gray-800 pb-6 print:hidden">
           <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
               <div className="w-full xl:w-auto">
@@ -218,14 +254,15 @@ export default function InventoryListClient({
               </div>
 
               <div className="w-full xl:w-auto flex flex-wrap gap-2">
-                  <button onClick={handlePrint} className="flex-1 md:flex-none flex justify-center items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition text-sm font-bold border border-slate-700 whitespace-nowrap">
+                  <button onClick={() => setIsPrintModalOpen(true)} className="flex-1 md:flex-none flex justify-center items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition text-sm font-bold border border-slate-700 whitespace-nowrap">
                       <Printer size={16} className="text-slate-300" /> 인쇄
                   </button>
                   <button onClick={handleExportExcel} className="flex-1 md:flex-none flex justify-center items-center gap-2 px-4 py-2.5 bg-emerald-900/60 hover:bg-emerald-800 text-emerald-100 rounded-lg transition text-sm font-bold border border-emerald-800 whitespace-nowrap">
                       <Download size={16} className="text-emerald-400" /> 엑셀 다운로드
                   </button>
                   <Link href="/location" className="flex-1 md:flex-none flex justify-center items-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition text-sm font-bold border border-gray-700 whitespace-nowrap group">
-                      <Map size={16} className="text-purple-400 group-hover:text-purple-300 transition-colors"/> 창고 맵
+                      {/* 🚀 [수정] Map 컴포넌트 호출 부분을 MapIcon으로 변경 */}
+                      <MapIcon size={16} className="text-purple-400 group-hover:text-purple-300 transition-colors"/> 창고 맵
                   </Link>
                   <Link href="/inventory" className="flex-1 md:flex-none flex justify-center items-center gap-2 px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition text-sm font-bold border border-gray-700 whitespace-nowrap">
                       <ArrowLeft size={16} /> 조건 변경
@@ -234,9 +271,7 @@ export default function InventoryListClient({
           </div>
         </div>
 
-        {/* ========================================================= */}
-        {/* 1. 화면용 테이블 (인쇄 시 숨김 - print:hidden) */}
-        {/* ========================================================= */}
+        {/* 화면용 테이블 */}
         <div className="hidden md:block print:hidden border border-gray-800 rounded-lg overflow-hidden bg-gray-900 shadow-sm">
           <table className="w-full text-sm text-left text-gray-400">
             <thead className="bg-gray-800 text-gray-200 uppercase border-b border-gray-700">
@@ -255,7 +290,7 @@ export default function InventoryListClient({
                 <DesktopRow 
                   key={item.id} 
                   item={item} 
-                  index={(page - 1) * pageSize + index} // 화면용: 페이지 번호 고려한 연번
+                  index={(page - 1) * pageSize + index}
                   getMapLink={getMapLink} 
                   onAdjust={() => handleOpenAdjustment(item)}
                   showAdjust={canAdjust} 
@@ -265,55 +300,7 @@ export default function InventoryListClient({
           </table>
         </div>
 
-        {/* ========================================================= */}
-        {/* 🚀 2. 인쇄용 전체 테이블 (화면엔 숨김, 인쇄 시에만 표출 - print:block) */}
-        {/* ========================================================= */}
-        <div className="hidden print:block w-full">
-          <div className="mb-4">
-            <h1 className="text-2xl font-bold text-black mb-2">재고 실사 장표</h1>
-            <p className="text-sm text-gray-600">출력일시: {new Date().toLocaleString('ko-KR')} | 조건: {conditionText} {serverQuery && `+ "${serverQuery}"`}</p>
-          </div>
-          <table className="w-full text-sm text-left text-black">
-            <thead className="bg-gray-200 text-black uppercase border-b border-gray-400">
-              <tr>
-                <th className="px-2 py-3 font-medium text-center w-[5%]">No.</th>
-                <th className="px-2 py-3 font-medium text-left w-[15%]">위치</th>
-                <th className="px-2 py-3 font-medium w-[35%]">제품 정보</th>
-                <th className="px-2 py-3 font-medium w-[15%]">LOT/유통기한</th>
-                <th className="px-2 py-3 font-medium text-right w-[10%]">수량</th>
-                <th className="px-2 py-3 font-medium text-center border-l border-gray-400 w-[20%]">실사 확인</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-300">
-              {filteredFullList.map((item, index) => (
-                <tr key={`print-${item.id}`} className="bg-white break-inside-avoid">
-                  <td className="px-2 py-2 text-center text-black font-bold align-middle">{index + 1}</td>
-                  <td className="px-2 py-2 align-middle text-left font-bold text-xs">{item.location_code}</td>
-                  <td className="px-2 py-2 align-middle">
-                    <div className="font-bold text-black text-sm">{item.item_master?.item_name || "이름 없음"}</div>
-                    <div className="text-gray-600 text-[10px] mt-0.5">{item.item_key}</div>
-                  </td>
-                  <td className="px-2 py-2 align-middle">
-                    <div className="flex flex-col gap-1">
-                      {item.lot_no && item.lot_no !== 'DEFAULT' ? <span className="text-[10px] font-mono text-black">LOT: {item.lot_no}</span> : <span className="text-gray-500 text-[10px]">-</span>}
-                      {item.exp_date && <span className="text-[10px] text-gray-600">EXP: {item.exp_date}</span>}
-                    </div>
-                  </td>
-                  <td className="px-2 py-2 text-right align-middle">
-                    <div>
-                        <span className="text-base font-bold text-black tracking-tight">{item.quantity.toLocaleString()}</span>
-                        <span className="text-[10px] text-gray-600 ml-1">{item.item_master?.uom || "EA"}</span>
-                    </div>
-                  </td>
-                  {/* 빈 실사 확인란 */}
-                  <td className="px-2 py-2 border-l border-gray-300 align-middle text-center"></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* 모바일 카드 (인쇄 시 숨김) */}
+        {/* 모바일 카드 */}
         <div className="md:hidden print:hidden flex flex-col gap-4">
           {filteredList.map((item) => (
             <MobileCard 
@@ -326,10 +313,161 @@ export default function InventoryListClient({
           ))}
         </div>
 
-        {/* 페이지네이션 (인쇄 시 숨김) */}
         <div className="print:hidden">
           {!localQuery && <PaginationControls totalCount={serverTotalCount} pageSize={pageSize} />}
         </div>
+
+        {/* 인쇄용 전체 테이블 */}
+        <div className="hidden print:block w-full">
+          <div className="mb-4">
+            <h1 className="text-2xl font-bold text-black mb-2">
+                {printMode === "LOCATION" ? "재고 실사 장표 (로케이션 기준)" : "재고 실사 장표 (품목별 합계)"}
+            </h1>
+            <p className="text-sm text-gray-600">출력일시: {new Date().toLocaleString('ko-KR')} | 조건: {conditionText} {serverQuery && `+ "${serverQuery}"`}</p>
+          </div>
+          
+          {printMode === "LOCATION" ? (
+              <table className="w-full text-sm text-left text-black">
+                <thead className="bg-gray-200 text-black uppercase border-b border-gray-400">
+                  <tr>
+                    <th className="px-2 py-3 font-medium text-center w-[5%]">No.</th>
+                    <th className="px-2 py-3 font-medium text-left w-[15%]">위치</th>
+                    <th className="px-2 py-3 font-medium w-[30%]">제품 정보</th>
+                    <th className="px-2 py-3 font-medium w-[15%]">LOT/유통기한</th>
+                    <th className="px-2 py-3 font-medium text-right w-[15%]">수량(상세)</th>
+                    <th className="px-2 py-3 font-medium text-center border-l border-gray-400 w-[20%]">실사 확인</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-300">
+                  {filteredFullList.map((item, index) => {
+                    const packingDetails = item.inventory_packing_info || [];
+                    const hasPackingInfo = packingDetails.length > 0;
+                    
+                    let packingText = "";
+                    if (hasPackingInfo) {
+                        const boxes = packingDetails.filter(p => p.pack_type === 'BOX');
+                        const loose = packingDetails.find(p => p.pack_type === 'LOOSE');
+                        let summary = [];
+                        if (boxes.length > 0) summary.push(`${boxes.map(b => `${b.unit_qty}×${b.pack_count}`).join(', ')}`);
+                        if (loose) summary.push(`잔량 ${loose.pack_count}`);
+                        packingText = summary.join(' | ');
+                    }
+
+                    return (
+                        <tr key={`print-${item.id}`} className="bg-white break-inside-avoid">
+                        <td className="px-2 py-2 text-center text-black font-bold align-middle">{index + 1}</td>
+                        <td className="px-2 py-2 align-middle text-left font-bold text-xs">{item.location_code}</td>
+                        <td className="px-2 py-2 align-middle">
+                            <div className="font-bold text-black text-sm">{item.item_master?.item_name || "이름 없음"}</div>
+                            <div className="text-gray-600 text-[10px] mt-0.5">{item.item_key}</div>
+                        </td>
+                        <td className="px-2 py-2 align-middle">
+                            <div className="flex flex-col gap-1">
+                            {item.lot_no && item.lot_no !== 'DEFAULT' ? <span className="text-[10px] font-mono text-black">LOT: {item.lot_no}</span> : <span className="text-gray-500 text-[10px]">-</span>}
+                            {item.exp_date && <span className="text-[10px] text-gray-600">EXP: {item.exp_date}</span>}
+                            </div>
+                        </td>
+                        <td className="px-2 py-2 text-right align-middle">
+                            <div>
+                                <span className="text-base font-bold text-black tracking-tight">{item.quantity.toLocaleString()}</span>
+                                <span className="text-[10px] text-gray-600 ml-1">{item.item_master?.uom || "EA"}</span>
+                            </div>
+                            {hasPackingInfo && (
+                                <div className="text-[10px] text-gray-600 font-bold mt-1">
+                                    [ {packingText} ]
+                                </div>
+                            )}
+                        </td>
+                        <td className="px-2 py-2 border-l border-gray-300 align-middle text-center"></td>
+                        </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+          ) : (
+              <table className="w-full text-sm text-left text-black">
+                <thead className="bg-gray-200 text-black uppercase border-b border-gray-400">
+                  <tr>
+                    <th className="px-2 py-3 font-medium text-center w-[5%]">No.</th>
+                    <th className="px-2 py-3 font-medium w-[30%]">제품 정보</th>
+                    <th className="px-2 py-3 font-medium w-[30%]">재고 분포 (로케이션)</th>
+                    <th className="px-2 py-3 font-medium text-right w-[15%]">총 수량</th>
+                    <th className="px-2 py-3 font-medium text-center border-l border-gray-400 w-[20%]">실사 확인</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-300">
+                  {groupedByItemList.map((group, index) => (
+                      <tr key={`print-group-${group.item_key}`} className="bg-white break-inside-avoid">
+                        <td className="px-2 py-2 text-center text-black font-bold align-top">{index + 1}</td>
+                        <td className="px-2 py-2 align-top">
+                            <div className="font-bold text-black text-base">{group.item_name}</div>
+                            <div className="text-gray-600 text-xs mt-0.5">{group.item_key}</div>
+                        </td>
+                        <td className="px-2 py-2 align-top">
+                            <ul className="text-[10px] text-gray-800 space-y-1 font-mono">
+                                {group.locations.map((loc, i) => (
+                                    <li key={i} className="flex justify-between items-center bg-gray-50 px-1 py-0.5 rounded border border-gray-200">
+                                        <span className="font-bold text-blue-800">{loc.code}</span>
+                                        <span>({loc.lot})</span>
+                                        <span className="font-bold text-black">{loc.qty.toLocaleString()}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </td>
+                        <td className="px-2 py-2 text-right align-top">
+                            <span className="text-lg font-black text-black tracking-tight">{group.total_qty.toLocaleString()}</span>
+                            <span className="text-xs text-gray-600 ml-1">{group.uom}</span>
+                        </td>
+                        <td className="px-2 py-2 border-l border-gray-300 align-middle text-center"></td>
+                      </tr>
+                  ))}
+                </tbody>
+              </table>
+          )}
+        </div>
+
+        {/* 인쇄 모드 선택 팝업 모달 */}
+        {isPrintModalOpen && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 print:hidden">
+                <div className="bg-gray-900 border border-gray-700 rounded-xl max-w-md w-full shadow-2xl">
+                    <div className="p-6 border-b border-gray-800 flex justify-between items-center">
+                        <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                            <Printer size={20} className="text-blue-400"/> 출력 모드 선택
+                        </h2>
+                        <button onClick={() => setIsPrintModalOpen(false)} className="text-gray-500 hover:text-white"><X size={20}/></button>
+                    </div>
+                    <div className="p-6 space-y-3">
+                        <button 
+                            onClick={() => setPrintMode("LOCATION")}
+                            className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all ${printMode === "LOCATION" ? "bg-blue-900/30 border-blue-500 text-white" : "bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700"}`}
+                        >
+                            <div className="text-left">
+                                <div className="font-bold text-base mb-1 flex items-center gap-2"><MapPin size={16}/> 로케이션 기준 (기본)</div>
+                                <div className="text-xs opacity-70">위치 순서대로 정렬되며, 박스 단위 정보가 포함됩니다.</div>
+                            </div>
+                            {printMode === "LOCATION" && <Check className="text-blue-400" size={20} />}
+                        </button>
+
+                        <button 
+                            onClick={() => setPrintMode("ITEM_GROUP")}
+                            className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all ${printMode === "ITEM_GROUP" ? "bg-emerald-900/30 border-emerald-500 text-white" : "bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700"}`}
+                        >
+                            <div className="text-left">
+                                <div className="font-bold text-base mb-1 flex items-center gap-2"><Box size={16}/> 품목별 총 합계 (신규)</div>
+                                <div className="text-xs opacity-70">품목별로 그룹핑되어 창고 내 전체 합계 및 분산 위치를 보여줍니다.</div>
+                            </div>
+                            {printMode === "ITEM_GROUP" && <Check className="text-emerald-400" size={20} />}
+                        </button>
+                    </div>
+                    <div className="p-4 bg-gray-800 rounded-b-xl flex gap-2">
+                        <button onClick={() => setIsPrintModalOpen(false)} className="flex-1 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm font-bold text-gray-300 transition">취소</button>
+                        <button onClick={handlePrint} className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-bold text-white transition flex justify-center items-center gap-2">
+                            인쇄 계속 <ArrowRight size={16}/>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
 
         <InventoryAdjustmentModal
           isOpen={isAdjModalOpen}
@@ -456,7 +594,6 @@ const MobileCard = ({ item, getMapLink, onAdjust, showAdjust }: {
               <Box size={12} /> {item.item_key}
           </div>
 
-          {/* 🚀 [추가] 모바일 카드용 LOT 및 유통기한 표시 영역 */}
           <div className="flex flex-wrap gap-1.5 mb-3">
               {item.lot_no && item.lot_no !== 'DEFAULT' ? (
                   <span className="text-[10px] font-mono text-gray-300 bg-gray-800 px-1.5 py-0.5 rounded border border-gray-700">LOT: {item.lot_no}</span>
