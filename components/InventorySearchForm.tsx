@@ -32,13 +32,27 @@ export default function InventorySearchForm({ zones, items }: Props) {
   // ❄️ 냉동 컨테이너 1~13번 고정 배열
   const containerNumbers = Array.from({ length: 13 }, (_, i) => String(i + 1));
 
-  // 검색어 자동완성 필터링
-  const filteredItems = keyword.trim() 
-    ? items.filter(i => {
-        const terms = keyword.toLowerCase().trim().split(/\s+/); 
-        const targetText = `${i.item_name || ''} ${i.item_key || ''} ${i.remark || ''}`.toLowerCase();
-        return terms.every(term => targetText.includes(term));
-      }).slice(0, 8) 
+  // 자동완성: 품목 정보의 공백 무시 + 여러 검색어 AND 조건 유지
+  const searchTerms = keyword
+    .toLowerCase()
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  const filteredItems = searchTerms.length > 0
+    ? items.filter(item => {
+        const fields = [
+          item.item_name,
+          item.item_key,
+          item.remark,
+        ].map(value =>
+          String(value ?? "").toLowerCase().replace(/\s+/g, "")
+        );
+
+        return searchTerms.every(term =>
+          fields.some(field => field.includes(term))
+        );
+      }).slice(0, 8)
     : [];
 
   const handleTabChange = (tab: TabType) => {

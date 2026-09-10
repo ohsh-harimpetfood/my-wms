@@ -82,11 +82,19 @@ export default function OutboundPage() {
 
       const terms = cleanTerm.toLowerCase().split(/\s+/).filter(Boolean);
 
+      // 후보 조회: 검색어 중 하나라도 품목명·코드에 맞으면 조회
       const targetItemKeys = masterCandidates
         .filter(c => {
-            const name = c.item_name.toLowerCase();
-            const code = c.item_key.toLowerCase();
-            return terms.every(t => name.includes(t) || code.includes(t));
+          const fields = [
+            c.normalizedName,
+            String(c.item_key ?? "")
+              .toLowerCase()
+              .replace(/\s+/g, ""),
+          ];
+
+          return terms.some(t =>
+            fields.some(field => field.includes(t))
+          );
         })
         .map(c => c.item_key);
 
@@ -137,15 +145,22 @@ export default function OutboundPage() {
 
       const uniqueRows = Array.from(new Map(allRows.map(item => [item['id'], item])).values());
 
+      // 최종 결과: 공백을 무시하고 모든 검색어가 일치하는 재고만 표시
       const finalResults = uniqueRows.filter(stock => {
-          const targetStr = `
-            ${stock.location_code} 
-            ${stock.item_key} 
-            ${stock.item_master?.item_name || ''} 
-            ${stock.lot_no}
-          `.toLowerCase();
+        const fields = [
+          stock.location_code,
+          stock.item_key,
+          stock.item_master?.item_name,
+          stock.lot_no,
+        ].map(value =>
+          String(value ?? "")
+            .toLowerCase()
+            .replace(/\s+/g, "")
+        );
 
-          return terms.every(t => targetStr.includes(t));
+        return terms.every(t =>
+          fields.some(field => field.includes(t))
+        );
       });
 
       setSearchResults(finalResults);

@@ -54,13 +54,29 @@ export default function NewInboundPage() {
     }
   }, [inboundType]);
 
+  // 품목 검색: 공백 무시 + 여러 검색어 AND 조건 유지
   const filteredItems = useMemo(() => {
-    if (!searchTerm.trim()) return [];
-    const terms = searchTerm.toLowerCase().split(/\s+/).filter(Boolean); 
+    const terms = searchTerm
+      .toLowerCase()
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+
+    if (terms.length === 0) return [];
+
     return allItems.filter(item => {
-        const targetText = `${item.item_name} ${item.item_key} ${item.item_type || ''}`.toLowerCase();
-        return terms.every(term => targetText.includes(term));
-    }).slice(0, 10); 
+      const fields = [
+        item.item_name,
+        item.item_key,
+        item.item_type,
+      ].map(value =>
+        String(value ?? "").toLowerCase().replace(/\s+/g, "")
+      );
+
+      return terms.every(term =>
+        fields.some(field => field.includes(term))
+      );
+    }).slice(0, 10);
   }, [searchTerm, allItems]);
 
   const addItem = (item: Item) => {
@@ -289,7 +305,10 @@ export default function NewInboundPage() {
                         </>
                     )}
                 </div>
-                <p className="text-xs text-slate-500 mt-2 pl-1">* 띄어쓰기를 하면 <span className="text-blue-400 font-bold">AND 조건</span>으로 검색됩니다.</p>
+                  <p className="text-xs text-slate-500 mt-2 pl-1">
+                     * 품목 정보의 띄어쓰기를 무시하며, 여러 검색어는{" "}
+                     <span className="text-blue-400 font-bold">모두 포함하는 품목</span>을 찾습니다.
+                  </p>
             </div>
         </div>
 

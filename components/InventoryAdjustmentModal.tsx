@@ -35,6 +35,18 @@ const InventoryAdjustmentModal = ({ isOpen, onClose, inventoryItem, onSuccess }:
 
   if (!isOpen || !inventoryItem) return null;
 
+  const itemType = inventoryItem.item_master?.item_type;
+  const uom = inventoryItem.item_master?.uom;
+
+  // 기존 입출고와 동일한 소수 자릿수 기준
+  const maxDecimal =
+    uom === "KM" ? 3 :
+    itemType === "원자재" || itemType === "원료" ? 2 : 0;
+
+  const qtyPattern = maxDecimal > 0
+    ? new RegExp(`^\\d*(?:\\.\\d{0,${maxDecimal}})?$`)
+    : /^\d*$/;
+
   const currentQty = Number(inventoryItem.quantity);
   const newQty = Number(realQty);
   const diff = newQty - currentQty; // 차이 계산
@@ -43,8 +55,17 @@ const InventoryAdjustmentModal = ({ isOpen, onClose, inventoryItem, onSuccess }:
   const isBoxItem = inventoryItem.item_master?.item_type === '부자재' || inventoryItem.item_master?.item_type === '부품';
 
   const handleSubmit = async () => {
-    if (isNaN(newQty) || newQty < 0) { // 마이너스 방지 추가
-      setError("유효한 수량을 입력해주세요.");
+    if (
+      !realQty.trim() ||
+      !qtyPattern.test(realQty) ||
+      !Number.isFinite(newQty) ||
+      newQty < 0
+    ) {
+      setError(
+        maxDecimal > 0
+          ? `0 이상의 수량을 소수 ${maxDecimal}자리까지 입력해주세요.`
+          : "0 이상의 정수를 입력해주세요."
+      );
       return;
     }
     if (diff === 0 && packingDetails.length === 0) { 
@@ -180,14 +201,23 @@ const InventoryAdjustmentModal = ({ isOpen, onClose, inventoryItem, onSuccess }:
               {!isBoxItem && <div className="text-xs text-gray-500 text-center mb-1">실사 수량</div>}
               
               <input
-                type="text" inputMode="numeric"
+                type="text"
+                inputMode={maxDecimal > 0 ? "decimal" : "numeric"}
                 value={realQty}
                 onChange={(e) => {
-                    setRealQty(e.target.value.replace(/[^0-9]/g, ""));
-                    setPackingDetails([]); // 직접 수정 시 박스 정보 날림
+                  const value = e.target.value;
+
+                  if (!qtyPattern.test(value)) return;
+
+                  setRealQty(value);
+                  setPackingDetails([]);
                 }}
                 className="w-full bg-[#0a0a0a] border border-blue-500/50 rounded-lg p-2.5 text-center text-xl font-bold text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                placeholder="0"
+                placeholder={
+                  maxDecimal > 0
+                    ? `0.${"0".repeat(maxDecimal)}`
+                    : "0"
+                }
               />
             </div>
           </div>
@@ -201,7 +231,15 @@ const InventoryAdjustmentModal = ({ isOpen, onClose, inventoryItem, onSuccess }:
 
           {/* 차이 표시 (자동계산) */}
           <div className={`text-center text-sm font-bold p-2 rounded ${diff === 0 ? 'text-gray-500' : diff > 0 ? 'text-blue-400 bg-blue-900/20' : 'text-red-400 bg-red-900/20'}`}>
-            조정량: {diff > 0 ? `+${diff}` : diff}
+            조정량: {
+              realQty.trim() && Number.isFinite(newQty)
+                ? `${diff > 0 ? "+" : ""}${Number(
+                    diff.toFixed(6)
+                  ).toLocaleString("ko-KR", {
+                    maximumFractionDigits: 6,
+                  })}`
+                : "-"
+            }
           </div>
 
           {/* 사유 입력 */}

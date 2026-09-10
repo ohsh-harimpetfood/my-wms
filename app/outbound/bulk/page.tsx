@@ -61,13 +61,28 @@ export default function BulkOutboundPage() {
     fetchItems();
   }, [supabase]);
 
+  // 품목 검색: 공백 무시 + 여러 검색어 AND 조건 유지
   const filteredItems = useMemo(() => {
-    if (!searchTerm.trim()) return [];
-    const terms = searchTerm.toLowerCase().split(/\s+/).filter(Boolean); 
+    const terms = searchTerm
+      .toLowerCase()
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+
+    if (terms.length === 0) return [];
+
     return allItems.filter(item => {
-        const targetText = `${item.item_name} ${item.item_key}`.toLowerCase();
-        return terms.every(term => targetText.includes(term));
-    }).slice(0, 10); 
+      const fields = [
+        item.item_name,
+        item.item_key,
+      ].map(value =>
+        String(value ?? "").toLowerCase().replace(/\s+/g, "")
+      );
+
+      return terms.every(term =>
+        fields.some(field => field.includes(term))
+      );
+    }).slice(0, 10);
   }, [searchTerm, allItems]);
 
   const getMaxDecimal = (item: Item) => {
@@ -151,7 +166,7 @@ export default function BulkOutboundPage() {
             const take = row.quantity; 
             
             newAllocations.push({
-                id: crypto.randomUUID(),
+                id: `inventory-${row.id}`,
                 inventory_id: row.id,
                 item_key: row.item_key,
                 item_name: c.item.item_name,

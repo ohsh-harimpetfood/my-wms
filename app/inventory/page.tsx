@@ -334,29 +334,29 @@ export default async function InventoryPage({
     }
   }
 
-  // 자유 검색어 필터
+  // 자유 검색어 필터: 공백 무시 + 여러 검색어 AND 조건 유지
   if (query) {
     const terms = query
       .toLowerCase()
+      .trim()
       .split(/\s+/)
       .filter(Boolean);
 
-    filteredInventory =
-      filteredInventory.filter((item) => {
-        const targetText = `
-          ${(item.location_code || "").toLowerCase()}
-          ${(item.item_key || "").toLowerCase()}
-          ${(
-            item.item_master?.item_name || ""
-          ).toLowerCase()}
-          ${(item.lot_no || "").toLowerCase()}
-          ${(item.status || "").toLowerCase()}
-        `;
+    filteredInventory = filteredInventory.filter((item) => {
+      const fields = [
+        item.location_code,
+        item.item_key,
+        item.item_master?.item_name,
+        item.lot_no,
+        item.status,
+      ].map(value =>
+        String(value ?? "").toLowerCase().replace(/\s+/g, "")
+      );
 
-        return terms.every((term) =>
-          targetText.includes(term)
-        );
-      });
+      return terms.every(term =>
+        fields.some(field => field.includes(term))
+      );
+    });
   }
 
   /*

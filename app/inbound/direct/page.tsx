@@ -300,11 +300,28 @@ export default function DirectInboundPage() {
     }
   };
 
-  const filteredItems = items.filter(i => {
-    const terms = itemSearchTerm.toLowerCase().trim().split(/\s+/); 
-    const targetText = `${i.item_name || ''} ${i.item_key || ''} ${i.remark || ''}`.toLowerCase();
-    return terms.every(term => targetText.includes(term));
-  }).slice(0, 10);
+  // 품목 검색: 공백 무시 + 여러 검색어 AND 조건 유지
+  const itemSearchTerms = itemSearchTerm
+    .toLowerCase()
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  const filteredItems = itemSearchTerms.length > 0
+    ? items.filter(item => {
+        const fields = [
+          item.item_name,
+          item.item_key,
+          item.remark,
+        ].map(value =>
+          String(value ?? "").toLowerCase().replace(/\s+/g, "")
+        );
+
+        return itemSearchTerms.every(term =>
+          fields.some(field => field.includes(term))
+        );
+      }).slice(0, 10)
+    : [];
 
   const isSubMaterial = selectedItem?.item_type === SUB_MATERIAL_TYPE || selectedItem?.lot_required === 'N';
   const currentMaxDec = getMaxDecimal();

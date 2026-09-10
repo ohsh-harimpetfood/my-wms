@@ -80,24 +80,44 @@ export default function InventoryListClient({
     router.refresh();
   };
 
-  const filteredList = useMemo(() => {
-    if (!localQuery.trim()) return initialInventory;
-    const lowerQuery = localQuery.toLowerCase();
-    return initialInventory.filter((item) => {
-      const searchTarget = `${item.location_code} ${item.item_key} ${item.item_master?.item_name || ""} ${item.lot_no || ""}`.toLowerCase();
-      return searchTarget.includes(lowerQuery);
-    });
-  }, [initialInventory, localQuery]);
+  // 공통 검색 조건: 공백 무시 + 여러 검색어 AND 조건
+  const matchesLocalQuery = useMemo(() => {
+    const terms = localQuery
+      .toLowerCase()
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
 
+    return (item: InventoryItem) => {
+      if (terms.length === 0) return true;
+
+      const fields = [
+        item.location_code,
+        item.item_key,
+        item.item_master?.item_name,
+        item.lot_no,
+      ].map(value =>
+        String(value ?? "").toLowerCase().replace(/\s+/g, "")
+      );
+
+      return terms.every(term =>
+        fields.some(field => field.includes(term))
+      );
+    };
+  }, [localQuery]);
+
+  // 화면 목록
+  const filteredList = useMemo(() => {
+    return initialInventory.filter(matchesLocalQuery);
+  }, [initialInventory, matchesLocalQuery]);
+
+  // 다운로드·인쇄용 전체 목록
   const filteredFullList = useMemo(() => {
-    const sourceData = fullInventory.length > 0 ? fullInventory : initialInventory;
-    if (!localQuery.trim()) return sourceData;
-    const lowerQuery = localQuery.toLowerCase();
-    return sourceData.filter((item) => {
-      const searchTarget = `${item.location_code} ${item.item_key} ${item.item_master?.item_name || ""} ${item.lot_no || ""}`.toLowerCase();
-      return searchTarget.includes(lowerQuery);
-    });
-  }, [fullInventory, initialInventory, localQuery]);
+    const sourceData =
+      fullInventory.length > 0 ? fullInventory : initialInventory;
+
+    return sourceData.filter(matchesLocalQuery);
+  }, [fullInventory, initialInventory, matchesLocalQuery]);
 
   const displayCount = filteredList.length;
 

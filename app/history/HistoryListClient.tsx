@@ -113,25 +113,35 @@ export default function HistoryListClient({ initialHistory, totalCount, params }
     loadMasterData();
   }, []);
 
-  // 3️⃣ [스마트 검색 로직] AND 조건 + 띄어쓰기 무시
+  // 스마트 자동완성: 공백 무시 + 여러 검색어 AND 조건 유지
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setLocalKeyword(val);
 
-    if (!val.trim()) {
-        setSuggestions([]);
-        setShowSuggestions(false);
-        return;
+    const terms = val
+      .toLowerCase()
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+
+    if (terms.length === 0) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
     }
 
-    // 🚀 [핵심 알고리즘] 검색어를 공백으로 쪼개서 "모두" 포함하는지 확인 (AND 조건)
-    const terms = val.toLowerCase().split(/\s+/).filter(Boolean); // ["완두", "70"]
-
     const matched = candidates.filter(cand => {
-        const targetText = `${cand.text} ${cand.subText || ''}`.toLowerCase();
-        // 모든 단어가 포함되어야 함 (AND Logic)
-        return terms.every(term => targetText.includes(term));
-    }).slice(0, 10); // 성능을 위해 상위 10개만 표시
+      const fields = [
+        cand.text,
+        cand.subText,
+      ].map(value =>
+        String(value ?? "").toLowerCase().replace(/\s+/g, "")
+      );
+
+      return terms.every(term =>
+        fields.some(field => field.includes(term))
+      );
+    }).slice(0, 10);
 
     setSuggestions(matched);
     setShowSuggestions(true);
