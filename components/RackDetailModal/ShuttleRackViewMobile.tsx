@@ -3,7 +3,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { Layers, LayoutGrid, Cuboid, Box } from "lucide-react";
 import { LocationData } from "./types";
-import { CellBox } from "./CellBox";
 
 interface Props {
   rackName: string;
@@ -127,7 +126,7 @@ export const ShuttleRackViewMobile = ({ rackName, locations, onInventoryClick, o
             return (
               <div key={level}
                 className={`absolute inset-0 border rounded-xl transform-style-3d ${viewMode === '3d' ? 'bg-gray-900/40 border-gray-600/30' : 'bg-transparent border-transparent'} pointer-events-none`}
-                style={{ transform: `translateZ(${zPos}px)`, opacity, zIndex: level, transition: 'transform 0.3s, opacity 0.3s' }}
+                style={{ transform: `translateZ(${zPos}px)`, opacity, zIndex: activeCell?.endsWith(`-${level}`) ? 100 : level, transition: 'transform 0.3s, opacity 0.3s' }}
               >
                 {/* Level Label */}
                 <div className={`absolute -right-10 top-0 text-4xl font-black ${isSelected ? 'text-white' : 'text-white/10'} ${viewMode === '3d' && (isAll || isSelected) ? 'opacity-100' : 'opacity-0'}`}>{level}F</div>
@@ -154,20 +153,24 @@ export const ShuttleRackViewMobile = ({ rackName, locations, onInventoryClick, o
                                 const hasStock = locData?.inventory && locData.inventory.length > 0;
                                 const isActive = activeCell === key;
                                 
-                                const handleCellInteraction = (e: React.MouseEvent) => {
-                                    e.stopPropagation(); 
+                                const handleCellInteraction = (
+                                  e: React.MouseEvent
+                                ) => {
+                                  e.stopPropagation();
 
-                                    if (isActive) {
-                                        if (hasStock) {
-                                            // @ts-ignore
-                                            const targetId = locData?.location_id || locData?.id; 
-                                            if (targetId) onInventoryClick(targetId);
-                                        } else {
-                                            onEmptyClick(rack, level, depth.toString());
-                                        }
-                                    } else {
-                                        setActiveCell(key);
-                                    }
+                                  if (!locData) return;
+
+                                  if (hasStock) {
+                                    // 한 번 터치하면 메뉴를 열고 선택 유지
+                                    setActiveCell(key);
+                                  } else {
+                                    setActiveCell(null);
+                                    onEmptyClick(
+                                      rack,
+                                      level,
+                                      depth.toString()
+                                    );
+                                  }
                                 };
 
                                 return (
@@ -190,24 +193,92 @@ export const ShuttleRackViewMobile = ({ rackName, locations, onInventoryClick, o
                                         )}
                                         
                                         {/* CellBox - Render only when active */}
-                                        {isActive && (
-                                            <div 
-                                                className="absolute inset-[-4px] z-[60] rounded-lg shadow-2xl overflow-visible" 
-                                                onClick={handleCellInteraction}
-                                            >
-                                                <div className="w-full h-full">
-                                                    <CellBox 
-                                                        data={locData} 
-                                                        col={rack} 
-                                                        lvl={level} 
-                                                        side={depth.toString()} 
-                                                        hoveredCell={key} 
-                                                        setHoveredCell={setActiveCell} 
-                                                        onInventoryClick={onInventoryClick} 
-                                                        onEmptyClick={onEmptyClick} 
-                                                    />
-                                                </div>
+                                        {/* 선택한 셀 옆에 표시하는 작업 메뉴 */}
+                                        {isActive && locData && hasStock && (
+                                          <div
+                                            className={`absolute z-[100] w-56
+                                              rounded-xl border border-purple-400
+                                              bg-slate-950 shadow-2xl p-3
+                                              flex flex-col gap-2
+                                              ${
+                                                sortedCols.indexOf(rack) >=
+                                                sortedCols.length / 2
+                                                  ? "right-0"
+                                                  : "left-0"
+                                              }
+                                              ${
+                                                sortedDepths.indexOf(depth) <
+                                                sortedDepths.length / 2
+                                                  ? "bottom-full mb-2"
+                                                  : "top-full mt-2"
+                                              }`}
+                                            onPointerDown={(e) =>
+                                              e.stopPropagation()
+                                            }
+                                            onClick={(e) => e.stopPropagation()}
+                                          >
+                                            <div className="flex items-center justify-between gap-2">
+                                              <span className="text-sm font-bold text-purple-300">
+                                                {locData.loc_id}
+                                              </span>
+                                              <button
+                                                type="button"
+                                                aria-label="선택 메뉴 닫기"
+                                                className="min-w-11 min-h-11 rounded-lg bg-slate-800 text-white"
+                                                onClick={() =>
+                                                  setActiveCell(null)
+                                                }
+                                              >
+                                                ✕
+                                              </button>
                                             </div>
+
+                                            <div className="max-h-24 overflow-y-auto text-xs text-slate-200">
+                                              {locData.inventory?.map(
+                                                (item, index) => (
+                                                  <div
+                                                    key={index}
+                                                    className="py-1 break-words"
+                                                  >
+                                                    {item.item_master?.item_name ||
+                                                      "품목명 없음"}
+                                                    <span className="ml-2 font-bold">
+                                                      {Number(
+                                                        item.quantity
+                                                      ).toLocaleString()}
+                                                    </span>
+                                                  </div>
+                                                )
+                                              )}
+                                            </div>
+
+                                            <button
+                                              type="button"
+                                              className="min-h-11 rounded-lg bg-blue-600 px-3 py-3 text-sm font-bold text-white"
+                                              onClick={() => {
+                                                const locId = locData.loc_id;
+                                                setActiveCell(null);
+                                                onInventoryClick(locId);
+                                              }}
+                                            >
+                                              상세 정보 · 출고 · 조정
+                                            </button>
+
+                                            <button
+                                              type="button"
+                                              className="min-h-11 rounded-lg bg-emerald-700 px-3 py-3 text-sm font-bold text-white"
+                                              onClick={() => {
+                                                setActiveCell(null);
+                                                onEmptyClick(
+                                                  rack,
+                                                  level,
+                                                  depth.toString()
+                                                );
+                                              }}
+                                            >
+                                              이 위치에 추가 입고
+                                            </button>
+                                          </div>
                                         )}
                                     </div>
                                 )

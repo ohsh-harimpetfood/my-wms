@@ -291,7 +291,7 @@ export default function LocationMapSelector({ onClose, onSelect, isMultiMode = f
   // --- 렌더링 ---
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-md p-2 md:p-4 animate-fade-in">
-      <div className="bg-[#0a0a0a] border border-gray-800 rounded-2xl w-full max-w-6xl h-[95vh] md:h-[90vh] flex flex-col shadow-2xl overflow-hidden font-[family-name:var(--font-geist-sans)]">
+      <div className="bg-[#0a0a0a] border border-gray-800 rounded-2xl w-full max-w-6xl h-[calc(100dvh-1rem)] md:h-[90vh] flex flex-col shadow-2xl overflow-hidden font-[family-name:var(--font-geist-sans)]">
         
         {/* 헤더 */}
         <div className="px-4 py-3 border-b border-gray-800 bg-[#111] flex flex-col gap-3 shrink-0 relative z-20">
@@ -319,7 +319,7 @@ export default function LocationMapSelector({ onClose, onSelect, isMultiMode = f
                     <button 
                         onClick={handleConfirmMulti}
                         disabled={selectedLocs.length === 0}
-                        className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold px-4 py-2 rounded-lg text-sm transition"
+                        className="hidden md:inline-flex bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold px-4 py-2 rounded-lg text-sm transition"
                     >
                         {selectedLocs.length}개 확정
                     </button>
@@ -358,7 +358,7 @@ export default function LocationMapSelector({ onClose, onSelect, isMultiMode = f
         </div>
 
         {/* 본문 컨텐츠 */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-3 md:p-6 bg-black relative z-10">
+        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-3 md:p-6 bg-black relative z-10">
             {loading ? (
                 <div className="h-full flex flex-col items-center justify-center text-gray-500 gap-2">
                     <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -506,6 +506,27 @@ export default function LocationMapSelector({ onClose, onSelect, isMultiMode = f
                 </>
             )}
         </div>
+
+        {/* 모바일: 팝업 내부 하단 확정 영역 */}
+        {isMultiMode && step !== 'ZONES' && step !== 'RACKS' && (
+          <div
+            className="md:hidden shrink-0 border-t border-gray-800 bg-[#111] px-4 pt-3 relative z-20"
+            style={{
+              paddingBottom: "calc(12px + env(safe-area-inset-bottom, 0px))",
+            }}
+          >
+            <button
+              type="button"
+              onClick={handleConfirmMulti}
+              disabled={selectedLocs.length === 0}
+              className="w-full min-h-14 rounded-xl bg-blue-600 px-4 py-4 text-base font-bold text-white transition active:bg-blue-700 disabled:bg-gray-800 disabled:text-gray-500"
+            >
+              {selectedLocs.length > 0
+                ? `선택한 ${selectedLocs.length}개 위치 확정`
+                : "입고할 위치를 선택해주세요"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
