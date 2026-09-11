@@ -12,14 +12,36 @@ interface CellBoxProps {
   lvl: number;
   side: string;
   hoveredCell: string | null;
+  actionsOpen?: boolean;
+  onActionsOpenChange?: (open: boolean) => void;
   setHoveredCell: (id: string | null) => void;
   onInventoryClick: (locId: string) => void;
   onEmptyClick: (col: string, lvl: number, side: string) => void;
 }
 
-export const CellBox = ({ data, col, lvl, side, hoveredCell, setHoveredCell, onInventoryClick, onEmptyClick }: CellBoxProps) => {
-  const router = useRouter(); 
-  const [showActions, setShowActions] = useState(false); 
+export const CellBox = ({
+  data,
+  col,
+  lvl,
+  side,
+  hoveredCell,
+  setHoveredCell,
+  onInventoryClick,
+  onEmptyClick,
+  actionsOpen,
+  onActionsOpenChange,
+}: CellBoxProps) => {
+  const router = useRouter();
+
+  const [localShowActions, setLocalShowActions] = useState(false);
+  const showActions = actionsOpen ?? localShowActions;
+
+  const setShowActions = (open: boolean) => {
+    if (actionsOpen === undefined) {
+      setLocalShowActions(open);
+    }
+    onActionsOpenChange?.(open);
+  };
   
   const [tooltipDirection, setTooltipDirection] = useState<'down' | 'up'>('down');
   const cellRef = useRef<HTMLDivElement>(null);
@@ -118,7 +140,7 @@ export const CellBox = ({ data, col, lvl, side, hoveredCell, setHoveredCell, onI
         onMouseEnter={() => { if(data) setHoveredCell(data.loc_id); }}
         onMouseLeave={() => { setHoveredCell(null); }}
         onClick={handleCellClick}
-        className={`w-20 h-16 md:w-28 md:h-24 border rounded-lg p-1.5 md:p-2 flex flex-col justify-between transition-all cursor-pointer relative ${isHovered || showActions ? 'z-[60]' : 'z-0'} ${cellClass}`}
+        className={`w-20 h-16 md:w-28 md:h-24 border rounded-lg p-1.5 md:p-2 flex flex-col justify-between transition-colors duration-100 cursor-pointer relative ${isHovered || showActions ? 'z-[60]' : 'z-0'} ${cellClass}`}
       >
         <div className="flex justify-between items-start w-full">
           <div className="text-[8px] md:text-[10px] font-mono opacity-70 truncate max-w-[70%]">{data.loc_id}</div>
@@ -154,10 +176,15 @@ export const CellBox = ({ data, col, lvl, side, hoveredCell, setHoveredCell, onI
 
         {showActions && totalQty > 0 && (
             <>
-                <div 
-                    className="fixed inset-0 z-[70] cursor-default" 
-                    onClick={(e) => { e.stopPropagation(); setShowActions(false); }} 
-                />
+                {actionsOpen === undefined && (
+                  <div
+                    className="fixed inset-0 z-[70] cursor-default"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowActions(false);
+                    }}
+                  />
+                )}
 
                 {/* 💻 PC 모드 툴팁 */}
                 {/* 🚀 [수정] 툴팁 가로 너비를 조금 더 여유롭게(w-56) 키움 */}
@@ -165,8 +192,21 @@ export const CellBox = ({ data, col, lvl, side, hoveredCell, setHoveredCell, onI
                     tooltipDirection === 'up' ? 'bottom-full mb-2' : 'top-full mt-2'
                 } w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-[80] flex-col overflow-hidden animate-fade-in`}>
                     
-                    <div className="px-3 py-2 border-b border-slate-800 text-[10px] font-bold text-slate-400 bg-slate-800/30 text-center uppercase tracking-wider">
+                    <div className="px-3 py-2 border-b border-slate-800 bg-slate-800/30 flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-slate-300">
                         {data.loc_id} Action
+                      </span>
+                      <button
+                        type="button"
+                        aria-label="작업 메뉴 닫기"
+                        className="p-2 rounded-lg text-slate-300 hover:bg-slate-700"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowActions(false);
+                        }}
+                      >
+                        <X size={16} />
+                      </button>
                     </div>
                     
                     {/* 🚀 [수정] PC 툴팁 글자 크기 키우기 (text-[10px] -> text-xs font-bold) */}

@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useState, useMemo, useRef } from "react";
+import React, {
+  useState,
+  useMemo,
+  useRef,
+  useEffect,
+  useCallback,
+} from "react";
 import { Layers, LayoutGrid, Cuboid, Box } from "lucide-react";
 import { LocationData } from "./types";
 import { CellBox } from "./CellBox";
@@ -12,10 +18,69 @@ interface Props {
   onEmptyClick: (rackNo: string, lvl: number, side: string) => void;
 }
 
+type ShuttleCellProps = Pick<
+  React.ComponentProps<typeof CellBox>,
+  | "data"
+  | "col"
+  | "lvl"
+  | "side"
+  | "onInventoryClick"
+  | "onEmptyClick"
+> & {
+  cellKey: string;
+  isActive: boolean;
+  setActiveCell: React.Dispatch<React.SetStateAction<string | null>>;
+};
+
+const ShuttleCell = React.memo(function ShuttleCell({
+  data,
+  col,
+  lvl,
+  side,
+  onInventoryClick,
+  onEmptyClick,
+  cellKey,
+  isActive,
+  setActiveCell,
+}: ShuttleCellProps) {
+  // 마우스 상태는 해당 셀 안에서만 변경
+  const [hoveredCell, setHoveredCell] = useState<string | null>(null);
+
+  // 부모가 다시 렌더링돼도 동일한 함수 유지
+  const handleActionsOpenChange = useCallback(
+    (open: boolean) => {
+      setActiveCell((current) =>
+        open ? cellKey : current === cellKey ? null : current
+      );
+    },
+    [cellKey, setActiveCell]
+  );
+
+  return (
+    <CellBox
+      data={data}
+      col={col}
+      lvl={lvl}
+      side={side}
+      hoveredCell={hoveredCell}
+      setHoveredCell={setHoveredCell}
+      onInventoryClick={onInventoryClick}
+      onEmptyClick={onEmptyClick}
+      actionsOpen={isActive}
+      onActionsOpenChange={handleActionsOpenChange}
+    />
+  );
+});
+
 export const ShuttleRackViewPC = ({ rackName, locations, onInventoryClick, onEmptyClick }: Props) => {
   const [viewMode, setViewMode] = useState<"2d" | "3d">("2d");
   const [selectedLevel, setSelectedLevel] = useState<number | null>(null);
-  const [hoveredCell, setHoveredCell] = useState<string | null>(null);
+  const [activeCell, setActiveCell] = useState<string | null>(null);
+
+  // 랙·층·보기 모드를 바꾸면 이전 메뉴 닫기
+  useEffect(() => {
+    setActiveCell(null);
+  }, [rackName, selectedLevel, viewMode]);  
 
   // ----------------------------------------------------------------------------------
   // ⚡ [Logic] 데이터 가공 (locations -> Matrix Map)
@@ -114,6 +179,7 @@ export const ShuttleRackViewPC = ({ rackName, locations, onInventoryClick, onEmp
       {/* 📦 메인 뷰어 영역 */}
       <div
         ref={scrollRef}
+        style={{ perspective: viewMode === "3d" ? "1200px" : "none" }}
         className={`flex-1 w-full flex items-center justify-center perspective-container pb-10 pl-12
             ${viewMode === '2d'
                 ? 'overflow-auto cursor-grab active:cursor-grabbing p-12 block' 
@@ -128,10 +194,16 @@ export const ShuttleRackViewPC = ({ rackName, locations, onInventoryClick, onEmp
             relative transition-all duration-700 ease-in-out transform-style-3d
             ${viewMode === '3d'
                 ? 'rotate-iso scale-[0.7] translate-x-[-10px]'
-                : 'rotate-0 scale-[0.95] translate-x-0'
+                : 'scale-100 translate-x-0'
             }
           `}
-          style={{ width: `${GRID_WIDTH}px`, height: `${GRID_HEIGHT}px` }}
+          style={{
+            width: `${GRID_WIDTH}px`,
+            height: `${GRID_HEIGHT}px`,
+            ...(viewMode === "2d"
+              ? { transform: "none", transformStyle: "flat" as const }
+              : {}),
+          }}
         >
 
           {levels.map((level) => {
@@ -147,7 +219,7 @@ export const ShuttleRackViewPC = ({ rackName, locations, onInventoryClick, onEmp
               <div
                 key={level}
                 className={`
-                    absolute inset-0 border rounded-2xl transition-all duration-700 ease-in-out transform-style-3d
+                    absolute inset-0 border rounded-2xl transition-[transform,opacity] duration-150 ease-out transform-style-3d
                     ${viewMode === '3d'
                         // 🚀 [톤업] 3D 겹침 효과 시 반투명 레이어 톤업 (bg-gray-900/30 -> bg-slate-800/40)
                         ? 'bg-slate-800/40 border-slate-600/30 shadow-2xl backdrop-blur-[0.5px]'
@@ -156,10 +228,17 @@ export const ShuttleRackViewPC = ({ rackName, locations, onInventoryClick, onEmp
                     pointer-events-none
                 `}
                 style={{
-                    transform: `translateZ(${zPos}px)`,
+                    transform: viewMode === '3d' ? `translateZ(${zPos}px)` : 'none',
+                    transformStyle: viewMode === '3d' ? 'preserve-3d' : 'flat',
                     opacity: opacity,
-                    zIndex: level,
-                    display: viewMode === '2d' && !isSelected && !isAll && level !== 4 ? 'none' : 'block'
+                    zIndex: activeCell?.endsWith(`-${level}`) ? 100 : level,
+                    // 2D ALL은 기존 최상단인 4층만 표시하여 층 겹침 방지
+                    display:
+                      viewMode === '2d' &&
+                      selectedLevel !== null &&
+                      level !== selectedLevel
+                        ? 'none'
+                        : 'block',
                 }}
               >
                 {/* 층 라벨 */}
@@ -186,6 +265,7 @@ export const ShuttleRackViewPC = ({ rackName, locations, onInventoryClick, onEmp
                         sortedCols.map((rack) => {
                             const key = `${rack}-${depth}-${level}`;
                             const locData = dataMap.get(key);
+                            const isActive = activeCell === key;
                             const hasStock = locData?.inventory && locData.inventory.length > 0;
                             const pointerEvents = isGhost ? 'pointer-events-none' : 'pointer-events-auto cursor-pointer';
 
@@ -193,8 +273,9 @@ export const ShuttleRackViewPC = ({ rackName, locations, onInventoryClick, onEmp
                                 <div
                                     key={key}
                                     className={`
-                                        relative w-full h-full rounded-[2px] transition-all duration-300 flex items-center justify-center group
+                                        relative w-full h-full rounded-[2px] transition-colors duration-100 flex items-center justify-center group
                                         ${pointerEvents}
+                                        ${isActive ? 'z-[100]' : 'z-0 hover:z-50'}
                                         ${hasStock
                                             ? 'bg-purple-600 border border-blue-400 shadow-[0_0_8px_rgba(59,130,246,0.6)]'
                                             : viewMode === '3d'
@@ -210,18 +291,26 @@ export const ShuttleRackViewPC = ({ rackName, locations, onInventoryClick, onEmp
                                         </div>
                                     )}
                                    
-                                    <div className="absolute inset-0 opacity-0 hover:opacity-100 z-10 w-full h-full flex items-center justify-center">
+                                    <div
+                                      className={`absolute inset-0 z-10 w-full h-full flex items-center justify-center ${
+                                        isActive
+                                          ? "opacity-100"
+                                          : "opacity-0 hover:opacity-100"
+                                      }`}
+                                      onMouseDown={(e) => e.stopPropagation()}
+                                    >
                                         <div className="w-full h-full">
                                             {/* CellBox 자체가 이미 톤업된 버전(bg-slate)을 사용하므로 그대로 두면 됩니다 */}
-                                            <CellBox
-                                                data={locData}
-                                                col={rack}
-                                                lvl={level}
-                                                side={depth.toString()}
-                                                hoveredCell={hoveredCell}
-                                                setHoveredCell={setHoveredCell}
-                                                onInventoryClick={onInventoryClick}
-                                                onEmptyClick={onEmptyClick}
+                                            <ShuttleCell
+                                              data={locData}
+                                              col={rack}
+                                              lvl={level}
+                                              side={depth.toString()}
+                                              onInventoryClick={onInventoryClick}
+                                              onEmptyClick={onEmptyClick}
+                                              cellKey={key}
+                                              isActive={isActive}
+                                              setActiveCell={setActiveCell}
                                             />
                                         </div>
                                     </div>
